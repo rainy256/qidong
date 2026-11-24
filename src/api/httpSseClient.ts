@@ -17,11 +17,24 @@ import {
 export class HttpSseRoomClient implements RoomRepository {
   private readonly baseUrl: string;
 
-  constructor(baseUrl = '/api') {
+  private sessionReady: Promise<void> | null = null;
+  constructor(baseUrl = '/api', private readonly syncMode: 'sse' | 'poll' = 'sse') {
     this.baseUrl = baseUrl;
   }
 
+  private async ensureSession(): Promise<void> {
+    if (this.syncMode !== 'poll') return;
+    // Single flight per tab, including React StrictMode's duplicate initial effects.
+    if (!this.sessionReady) {
+      this.sessionReady = this.fetchJson(`${this.baseUrl}/session`, {
+        method: 'GET', credentials: 'same-origin', cache: 'no-store',
+      }).then(() => undefined).catch(err => { this.sessionReady = null; throw err; });
+    }
+    await this.sessionReady;
+  }
+
   async createRoom(spec: CreateRoomSpec, mutationId: string): Promise<RoomSnapshot> {
+    await this.ensureSession();
     const res = await this.fetchJson(`${this.baseUrl}/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -32,6 +45,7 @@ export class HttpSseRoomClient implements RoomRepository {
   }
 
   async getRoom(id: string, signal?: AbortSignal): Promise<RoomSnapshot> {
+    await this.ensureSession();
     const res = await this.fetchJson(`${this.baseUrl}/rooms/${encodeURIComponent(id)}`, {
       method: 'GET',
       credentials: 'same-origin',
@@ -41,6 +55,7 @@ export class HttpSseRoomClient implements RoomRepository {
   }
 
   async saveMine(id: string, input: SaveMineInput): Promise<RoomSnapshot> {
+    await this.ensureSession();
     const res = await this.fetchJson(`${this.baseUrl}/rooms/${encodeURIComponent(id)}/me`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -51,6 +66,7 @@ export class HttpSseRoomClient implements RoomRepository {
   }
 
   async closeRoom(id: string, mutationId: string): Promise<RoomSnapshot> {
+    await this.ensureSession();
     const res = await this.fetchJson(`${this.baseUrl}/rooms/${encodeURIComponent(id)}/closure`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -63,131 +79,122 @@ export class HttpSseRoomClient implements RoomRepository {
   subscribe(id: string, afterRevision: number, handlers: SubscribeHandlers): () => void {
     let lastRevision = afterRevision;
     let disposed = false;
+    let terminal = false;
     let wasDisconnected = false;
     let consecutiveSseErrors = 0;
     let source: EventSource | null = null;
-    let pollTimer: number | null = null;
-    let inFlightFetch: AbortController | null = null;
-
-    const stopFallbackPolling = () => {
-      if (pollTimer !== null) {
-        clearInterval(pollTimer);
-        pollTimer = null;
-      }
+    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectTimer: ReturnType<typeof setTimeout> | null = null;
+    let inFlight: AbortController | null = null;
+    let queued = false;
+    const pollingOnly = this.syncMode === 'poll' || typeof EventSource === 'undefined';
+    const visible = () => !disposed && !terminal && document.visibilityState !== 'hidden';
+    const connectionError = () => handlers.onConnection(navigator.onLine === false ? 'offline' : 'reconnecting');
+    const stopPolling = () => { if (pollTimer !== null) clearInterval(pollTimer); pollTimer = null; };
+    const stopTimers = () => {
+      stopPolling();
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      if (connectTimer !== null) clearTimeout(connectTimer);
+      retryTimer = connectTimer = null;
     };
+    const closeSource = () => { const old = source; source = null; old?.close(); };
 
     const pullSnapshot = async () => {
-      if (disposed || document.visibilityState === 'hidden') return;
-      inFlightFetch?.abort();
-      inFlightFetch = new AbortController();
+      if (!visible()) return;
+      if (inFlight) { queued = true; return; }
+      const controller = new AbortController();
+      inFlight = controller;
       try {
-        const snap = await this.getRoom(id, inFlightFetch.signal);
-        if (disposed) return;
+        const snap = await this.getRoom(id, controller.signal);
+        if (!visible() || controller.signal.aborted) return;
         if (snap.roomRevision > lastRevision) {
           lastRevision = snap.roomRevision;
           handlers.onSnapshot(snap);
         }
         handlers.onConnection('live');
+        if (!pollingOnly && source?.readyState === EventSource.OPEN) stopPolling();
       } catch (err) {
-        if ((err as Error)?.name === 'AbortError' || disposed) return;
-        handlers.onConnection(
-          typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'reconnecting',
-        );
+        if (!visible() || controller.signal.aborted || (err as Error)?.name === 'AbortError') return;
+        if (err instanceof NotFoundError) {
+          terminal = true;
+          stopTimers();
+          closeSource();
+          handlers.onNotFound?.();
+          return;
+        }
+        connectionError();
+        startPolling();
+      } finally {
+        if (inFlight === controller) inFlight = null;
+        if (queued && visible()) { queued = false; void pullSnapshot(); }
       }
     };
-
-    const startFallbackPolling = () => {
-      if (pollTimer !== null) return;
-      pollTimer = window.setInterval(() => {
-        void pullSnapshot();
-      }, 6000);
+    const startPolling = () => {
+      if (!visible() || pollTimer !== null) return;
+      pollTimer = window.setInterval(() => { if (!inFlight) void pullSnapshot(); }, 6000);
     };
-
     const connectSse = () => {
-      if (disposed || document.visibilityState === 'hidden') return;
-      if (typeof EventSource === 'undefined') {
-        startFallbackPolling();
-        return;
-      }
-      source?.close();
-      source = new EventSource(
+      if (!visible()) return;
+      if (pollingOnly) { startPolling(); return; }
+      if (retryTimer !== null) clearTimeout(retryTimer);
+      if (connectTimer !== null) clearTimeout(connectTimer);
+      retryTimer = connectTimer = null;
+      closeSource();
+      const current = new EventSource(
         `${this.baseUrl}/rooms/${encodeURIComponent(id)}/events?afterRevision=${lastRevision}`,
         { withCredentials: true },
       );
-
-      source.onopen = () => {
-        if (disposed) return;
+      source = current;
+      connectTimer = setTimeout(() => { if (source === current && current.readyState !== EventSource.OPEN) startPolling(); }, 10000);
+      current.onopen = () => {
+        if (!visible() || source !== current) return;
+        if (connectTimer !== null) clearTimeout(connectTimer);
+        connectTimer = null;
         consecutiveSseErrors = 0;
-        stopFallbackPolling();
+        stopPolling();
         handlers.onConnection('live');
-        if (wasDisconnected) {
-          wasDisconnected = false;
-          void pullSnapshot();
-        }
+        if (wasDisconnected) { wasDisconnected = false; void pullSnapshot(); }
       };
-
-      source.addEventListener('revision', (evt) => {
-        if (disposed) return;
+      current.addEventListener('revision', evt => {
+        if (!visible() || source !== current) return;
         try {
           const payload = JSON.parse((evt as MessageEvent).data) as { roomRevision?: number };
-          if (typeof payload.roomRevision === 'number' && payload.roomRevision > lastRevision) {
-            void pullSnapshot();
-          }
-        } catch {
-          void pullSnapshot();
-        }
+          if (typeof payload.roomRevision === 'number' && payload.roomRevision > lastRevision) void pullSnapshot();
+        } catch { void pullSnapshot(); }
       });
-
-      source.onerror = () => {
-        if (disposed) return;
+      current.onerror = () => {
+        if (!visible() || source !== current) return;
         wasDisconnected = true;
-        consecutiveSseErrors += 1;
-        handlers.onConnection(
-          typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'reconnecting',
-        );
-        if (source?.readyState === EventSource.CLOSED || consecutiveSseErrors >= 2) {
-          startFallbackPolling();
+        consecutiveSseErrors++;
+        connectionError();
+        if (current.readyState === EventSource.CLOSED || consecutiveSseErrors >= 2) startPolling();
+        if (current.readyState === EventSource.CLOSED && retryTimer === null) {
+          retryTimer = setTimeout(() => { retryTimer = null; connectSse(); }, 15000);
         }
       };
     };
-
-    const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') {
-        source?.close();
-        source = null;
-        consecutiveSseErrors = 0;
-        stopFallbackPolling();
-      } else {
-        void pullSnapshot();
-        connectSse();
-      }
+    const pause = () => {
+      closeSource();
+      stopTimers();
+      inFlight?.abort();
+      consecutiveSseErrors = 0;
+      queued = false;
     };
-
-    const onOffline = () => {
-      if (disposed) return;
-      wasDisconnected = true;
-      handlers.onConnection('offline');
-    };
-
-    const onOnline = () => {
-      if (disposed) return;
-      void pullSnapshot();
-      connectSse();
-    };
-
+    const resume = () => { if (visible()) { void pullSnapshot(); connectSse(); } };
+    const onVisibilityChange = () => { if (document.visibilityState === 'hidden') pause(); else resume(); };
+    const onOffline = () => { if (!disposed) { wasDisconnected = true; handlers.onConnection('offline'); } };
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('offline', onOffline);
-    window.addEventListener('online', onOnline);
+    window.addEventListener('online', resume);
     connectSse();
-
+    if (pollingOnly) void pullSnapshot();
     return () => {
       disposed = true;
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('offline', onOffline);
-      window.removeEventListener('online', onOnline);
-      inFlightFetch?.abort();
-      source?.close();
-      stopFallbackPolling();
+      window.removeEventListener('online', resume);
+      pause();
     };
   }
 
@@ -195,7 +202,8 @@ export class HttpSseRoomClient implements RoomRepository {
     let response: Response;
     try {
       response = await fetch(url, init);
-    } catch {
+    } catch (err) {
+      if ((err as Error)?.name === 'AbortError') throw err;
       throw new NetworkError();
     }
 
@@ -238,6 +246,7 @@ export class HttpSseRoomClient implements RoomRepository {
     if (code === 'ROOM_CLOSED' || response.status === 410) {
       throw new RoomClosedError(message);
     }
+    if (code === 'SESSION_REQUIRED') throw new RepositoryError(code, message ?? '请刷新页面恢复身份。');
     if (code === 'INVALID_INPUT' || response.status === 400) {
       throw new RepositoryError(
         'INVALID_INPUT',
