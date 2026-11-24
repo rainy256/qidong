@@ -1,6 +1,9 @@
 import { Lock, Plus, RefreshCw, Sparkles, WifiOff, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
 import {
+  NetworkError,
+  RepositoryError,
   NotFoundError,
   RevisionConflictError,
   RoomClosedError,
@@ -43,6 +46,20 @@ export function RoomPage({
   const [showCreatedBanner, setShowCreatedBanner] = useState(justCreated);
   const [closeDialogOpen, setCloseDialogOpen] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const loadRef = useRef<AbortController | null>(null);
+  const saving = useRef(false);
+  const closing = useRef(false);
+  const pendingSave = useRef<PendingMutation | null>(readPending('save:'+roomId));
+  const pendingClose = useRef<PendingMutation | null>(readPending('close:'+roomId));
+  const accept = useCallback((incoming: RoomSnapshot) => {
+    setSnapshot(prev => prev && prev.id === incoming.id && prev.roomRevision > incoming.roomRevision ? prev : incoming);
+  }, []);
+  const markMissing = useCallback(() => {
+    loadRef.current?.abort();
+    setNotFound(true);
+    setLoading(false);
+    setSnapshot(null);
+  }, []);
 
   useEffect(() => {
     onRoomLoaded(snapshot);
@@ -52,28 +69,34 @@ export function RoomPage({
     setLoading(true);
     setNotFound(false);
     setLoadError(null);
+    loadRef.current?.abort();
     const ac = new AbortController();
+    loadRef.current = ac;
     try {
       const snap = await repository.getRoom(roomId, ac.signal);
-      setSnapshot(snap);
+      if (ac.signal.aborted || loadRef.current !== ac) return;
+      accept(snap);
       setConnectionState('live');
     } catch (err) {
-      if ((err as Error).name === 'AbortError') return;
+      if (ac.signal.aborted || loadRef.current !== ac || (err as Error).name === 'AbortError') return;
       if (err instanceof NotFoundError) {
-        setNotFound(true);
-        setSnapshot(null);
+        markMissing();
       } else {
         setLoadError((err as Error).message || '加载失败，请重试。');
       }
     } finally {
-      setLoading(false);
+      if (loadRef.current === ac) {
+        setLoading(false);
+        loadRef.current = null;
+      }
     }
-  }, [repository, roomId]);
+  }, [repository, roomId, accept, markMissing]);
 
   useEffect(() => {
     setShowCreatedBanner(justCreated);
     setSaveError(null);
     void loadRoom();
+    return () => loadRef.current?.abort();
   }, [justCreated, loadRoom]);
 
   useEffect(() => {
@@ -86,7 +109,7 @@ export function RoomPage({
             incoming.viewer.memberId !== prev.viewer.memberId ||
             incoming.viewer.canClose !== prev.viewer.canClose ||
             incoming.viewer.mineRevision !== prev.viewer.mineRevision;
-          if (incoming.roomRevision < prev.roomRevision && !viewerChanged) {
+          if (incoming.roomRevision < prev.roomRevision) {
             return prev;
           }
           if (incoming.roomRevision === prev.roomRevision && !viewerChanged) {
@@ -98,9 +121,10 @@ export function RoomPage({
       onConnection: (state) => {
         setConnectionState(state);
       },
+      onNotFound: markMissing,
     });
     return unsub;
-  }, [repository, roomId, snapshot?.id]);
+  }, [repository, roomId, snapshot?.id, markMissing]);
 
   const inviteUrl =
     typeof window !== 'undefined'
@@ -108,23 +132,29 @@ export function RoomPage({
       : `https://yueju.example/r/${roomId}`;
 
   const handleSaveMine = async (nickname: string, answer: Answer): Promise<boolean> => {
-    if (!snapshot) return false;
+    if (!snapshot || saving.current) return false;
+    saving.current = true;
     setIsSaving(true);
     setSaveError(null);
-    const mutationId = `save_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
+    const scope = 'save:'+roomId;
     try {
+      pendingSave.current = pendingMutation(pendingSave.current, {nickname,answer}, snapshot.viewer.mineRevision);
+      writePending(scope,pendingSave.current);
       const updated = await repository.saveMine(roomId, {
         nickname,
         answer,
-        baseMineRevision: snapshot.viewer.mineRevision,
-        mutationId,
+        baseMineRevision: pendingSave.current.baseRevision,
+        mutationId: pendingSave.current.key,
       });
-      setSnapshot(updated);
-      setIsSaving(false);
+      pendingSave.current = null;
+      writePending(scope,null);
+      accept(updated);
       return true;
     } catch (err) {
-      setIsSaving(false);
+      if (err instanceof RepositoryError && !(err instanceof NetworkError) && err.code !== 'SESSION_REQUIRED') {
+        pendingSave.current = null;
+        writePending(scope,null);
+      }
       if (err instanceof RevisionConflictError) {
         setSaveError({ message: err.message, isConflict: true });
       } else if (err instanceof RoomClosedError) {
@@ -137,24 +167,37 @@ export function RoomPage({
         });
       }
       return false;
+    } finally {
+      saving.current = false;
+      setIsSaving(false);
     }
   };
 
   const handleConfirmClose = async () => {
-    if (!snapshot || isClosing) return;
+    if (!snapshot || closing.current) return;
+    closing.current = true;
     setIsClosing(true);
-    const mutationId = `close_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const scope = 'close:'+roomId;
     try {
-      const updated = await repository.closeRoom(roomId, mutationId);
-      setSnapshot(updated);
+      pendingClose.current = pendingMutation(pendingClose.current, {roomId});
+      writePending(scope,pendingClose.current);
+      const updated = await repository.closeRoom(roomId, pendingClose.current.key);
+      pendingClose.current = null;
+      writePending(scope,null);
+      accept(updated);
       setCloseDialogOpen(false);
     } catch (err) {
+      if (err instanceof RepositoryError && !(err instanceof NetworkError) && err.code !== 'SESSION_REQUIRED') {
+        pendingClose.current = null;
+        writePending(scope,null);
+      }
       setSaveError({
         message: (err as Error).message || '关闭收集失败，请重试。',
         isConflict: false,
       });
       setCloseDialogOpen(false);
     } finally {
+      closing.current = false;
       setIsClosing(false);
     }
   };
