@@ -12,6 +12,7 @@ import {
 } from './db';
 import {
   generateToken,
+  deriveOwnerToken,
   hashToken,
   isValidRoomId,
   isValidToken,
@@ -95,10 +96,9 @@ export function buildServer(overrides: Partial<ServerConfig> = {}): ServerContex
 
   app.register(cookie);
 
-  app.addHook('onClose', async () => {
-    sseHub.closeAll();
-    db.close();
-  });
+  // End hijacked streams before Fastify waits for open connections.
+  app.addHook('preClose', async () => { sseHub.closeAll(); });
+  app.addHook('onClose', async () => { db.close(); });
 
   app.addHook('preHandler', async (request, reply) => {
     if (!request.url.startsWith('/api/')) return;
@@ -167,37 +167,25 @@ export function buildServer(overrides: Partial<ServerConfig> = {}): ServerContex
     return reply.code(ok ? 200 : 503).send({ ok });
   });
 
+  app.get('/api/session', async (request,reply) => {
+    if (!readValidCookieToken(request, MEMBER_COOKIE_NAME)) {
+      setMemberCookie(request,reply,generateToken(),config);
+    }
+    return reply.header('Cache-Control','private, no-store').send({ok:true});
+  });
+
   app.post('/api/rooms', async (request, reply) => {
     const body = validateCreateRoomBody(request.body);
-    const existingMemberToken = readValidCookieToken(request, MEMBER_COOKIE_NAME);
-    const memberToken = existingMemberToken ?? generateToken();
-    const memberTokenHash = hashToken(memberToken, config.tokenPepper);
-
-    const freshOwnerToken = generateToken();
-    const freshOwnerHash = hashToken(freshOwnerToken, config.tokenPepper);
-
-    const result = db.createRoom(
-      body,
-      freshOwnerHash,
-      memberTokenHash,
-      (roomId) => {
-        const cookieToken = readValidCookieToken(request, ownerCookieName(roomId));
-        return cookieToken ? hashToken(cookieToken, config.tokenPepper) : null;
-      },
-      config.roomTtlDays,
-    );
-
-    if (!existingMemberToken) {
-      setMemberCookie(request, reply, memberToken, config);
-    }
-    if (result.created) {
-      setOwnerCookie(request, reply, result.snapshot.id, freshOwnerToken, config);
-    }
-
-    return reply
-      .code(result.created ? 201 : 200)
-      .header('Cache-Control', 'private, no-store')
-      .send(result.snapshot);
+    const memberToken = readValidCookieToken(request, MEMBER_COOKIE_NAME);
+    if (!memberToken) return sendJsonError(reply,401,'SESSION_REQUIRED','请先建立浏览器身份再创建房间。');
+    const memberHash = hashToken(memberToken, config.tokenPepper);
+    const ownerToken = deriveOwnerToken(memberToken,body.mutationId,config.tokenPepper);
+    const ownerHash = hashToken(ownerToken,config.tokenPepper);
+    const result = db.createRoom(body,ownerHash,memberHash,config.roomTtlDays);
+    // Replay also sets the owner cookie. POST /api/rooms never receives
+    // the path-scoped owner cookie, so validate via the original session.
+    setOwnerCookie(request,reply,result.snapshot.id,ownerToken,config);
+    return reply.code(result.created?201:200).header('Cache-Control','private, no-store').send(result.snapshot);
   });
 
   app.get<{ Params: { id: string } }>('/api/rooms/:id', async (request, reply) => {
@@ -234,18 +222,14 @@ export function buildServer(overrides: Partial<ServerConfig> = {}): ServerContex
     }
 
     const body = validateSaveMineBody(request.body);
-    const existingMemberToken = readValidCookieToken(request, MEMBER_COOKIE_NAME);
-    const memberToken = existingMemberToken ?? generateToken();
+    const memberToken = readValidCookieToken(request, MEMBER_COOKIE_NAME);
+    if (!memberToken) return sendJsonError(reply,401,'SESSION_REQUIRED','请先建立浏览器身份再保存。');
     const memberHash = hashToken(memberToken, config.tokenPepper);
 
     const ownerToken = readValidCookieToken(request, ownerCookieName(id));
     const ownerHash = ownerToken ? hashToken(ownerToken, config.tokenPepper) : null;
 
     const result = db.saveMine(id, body, memberHash, ownerHash);
-
-    if (!existingMemberToken) {
-      setMemberCookie(request, reply, memberToken, config);
-    }
 
     if (result.mutated) {
       sseHub.broadcastRevision(id, result.roomRevision);
@@ -314,7 +298,7 @@ export function buildServer(overrides: Partial<ServerConfig> = {}): ServerContex
     request.socket?.setNoDelay?.(true);
 
     // Subscribe BEFORE checking latest revision so commits during setup aren't missed
-    const subscription = sseHub.subscribe(id, reply.raw, request.raw, config.sseHeartbeatMs);
+    const subscription = sseHub.subscribe(id, reply.raw, config.sseHeartbeatMs);
 
     const latestRevision = db.getRoomRevision(id);
     if (latestRevision !== null && latestRevision > afterRevision) {
