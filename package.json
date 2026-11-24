@@ -8,9 +8,14 @@
     "dev:mock": "vite --mode mock --host 127.0.0.1 --port 5173",
     "dev:server": "tsx watch server/index.ts",
     "start:server": "tsx server/index.ts",
-    "build": "tsc -b && vite build",
+    "build": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json && tsc -p tsconfig.server.json && tsc -p tsconfig.worker.json && vite build",
     "test": "vitest run",
-    "preview": "vite preview --host 127.0.0.1 --port 4173"
+    "preview": "vite preview --host 127.0.0.1 --port 4173",
+    "build:cloudflare": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && vite build --mode cloudflare",
+    "dev:cloudflare": "npm run build:cloudflare && npx --yes wrangler@4 dev",
+    "d1:local": "npx --yes wrangler@4 d1 migrations apply DB --local",
+    "d1:remote": "npx --yes wrangler@4 d1 migrations apply DB --remote",
+    "deploy:cloudflare": "npx --yes wrangler@4 deploy"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",
