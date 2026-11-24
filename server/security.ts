@@ -50,6 +50,12 @@ export function generateToken(): string {
   return crypto.randomBytes(32).toString('base64url');
 }
 
+// Stable owner credential for an authenticated create retry; only the original
+// anonymous session plus the same mutation key can reproduce it.
+export function deriveOwnerToken(memberToken: string, mutationId: string, pepper: string): string {
+  return crypto.createHmac('sha256', pepper).update(JSON.stringify(['owner-create-v2',memberToken,mutationId])).digest('base64url');
+}
+
 export function hashToken(token: string, pepper: string): string {
   return crypto.createHash('sha256').update(`${token}${pepper}`).digest('hex');
 }
