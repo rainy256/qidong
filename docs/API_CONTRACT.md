@@ -1,5 +1,7 @@
 # 后端数据模型与 API / SSE 契约（方案 A）
 
+下方为 Fastify 备用方案的原始接口与数据库说明，Cloudflare 主方案差异见本文末尾及 [CLOUDFLARE.md](CLOUDFLARE.md)。
+
 本文档定义 Phase 2 **Fastify + SQLite (WAL) + SSE + Nginx** 后端必须严格遵循的数据结构与同源接口契约。  
 前端 [`src/api/httpSseClient.ts`](../src/api/httpSseClient.ts) 已按以下契约编写完毕，后端对齐后即可零改动切换。
 
@@ -274,3 +276,13 @@ server {
     }
 }
 ```
+
+
+## 当前接口修订（适用于新客户端）
+
+- GET /api/session：先建立匿名会话，再发起建房或首次保存；浏览不创建成员。未建立会话的写入返回 401 SESSION_REQUIRED。
+- mutationId：客户端使用 128 bit 密码学随机值（32 位十六进制）；同一请求重试保持原值和原 baseMineRevision，改变内容时使用新值。
+- 创建幂等范围限定在原匿名会话内，不能凭其他人的 mutationId 取得权限；同一会话丢失创建响应后可重试获得房主权限。Fastify 重放也重新签发 owner Cookie。
+- 成功保存的相同请求可以在关闭收集后重放；全新保存仍返回 410。
+- Cloudflare：GET /api/health 返回 syncMode: poll；前端直接每 6 秒 GET /api/rooms/:id，不连接 SSE；events 路由返回 204。使用 D1 的 worker/migrations/0001_initial.sql，不使用上面的本地 WAL schema。
+- Cloudflare 会话 Cookie 为 __Host-yj_cloud_session，房主与成员由 HMAC 派生；清除 Cookie、换浏览器或换域名不自动恢复。RoomSnapshot 及其余业务 API 维持相同契约。
