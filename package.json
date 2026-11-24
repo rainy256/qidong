@@ -5,16 +5,25 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
+    "dev:mock": "vite --mode mock --host 127.0.0.1 --port 5173",
+    "dev:server": "tsx watch server/index.ts",
+    "start:server": "tsx server/index.ts",
     "build": "tsc -b && vite build",
     "test": "vitest run",
     "preview": "vite preview --host 127.0.0.1 --port 4173"
   },
   "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "better-sqlite3": "^13.2.0",
+    "fastify": "^5.12.8",
     "lucide-react": "^0.546.0",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tsx": "^4.23.15"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
     "@types/react": "^19.1.2",
     "@types/react-dom": "^19.1.1",
     "@vitejs/plugin-react": "^4.5.0",

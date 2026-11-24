@@ -3,6 +3,7 @@ import {
   ForbiddenError,
   NetworkError,
   NotFoundError,
+  RepositoryError,
   RevisionConflictError,
   RoomClosedError,
   type RoomRepository,
@@ -62,9 +63,18 @@ export class HttpSseRoomClient implements RoomRepository {
   subscribe(id: string, afterRevision: number, handlers: SubscribeHandlers): () => void {
     let lastRevision = afterRevision;
     let disposed = false;
+    let wasDisconnected = false;
+    let consecutiveSseErrors = 0;
     let source: EventSource | null = null;
     let pollTimer: number | null = null;
     let inFlightFetch: AbortController | null = null;
+
+    const stopFallbackPolling = () => {
+      if (pollTimer !== null) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    };
 
     const pullSnapshot = async () => {
       if (disposed || document.visibilityState === 'hidden') return;
@@ -80,8 +90,17 @@ export class HttpSseRoomClient implements RoomRepository {
         handlers.onConnection('live');
       } catch (err) {
         if ((err as Error)?.name === 'AbortError' || disposed) return;
-        handlers.onConnection('reconnecting');
+        handlers.onConnection(
+          typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'reconnecting',
+        );
       }
+    };
+
+    const startFallbackPolling = () => {
+      if (pollTimer !== null) return;
+      pollTimer = window.setInterval(() => {
+        void pullSnapshot();
+      }, 6000);
     };
 
     const connectSse = () => {
@@ -97,7 +116,14 @@ export class HttpSseRoomClient implements RoomRepository {
       );
 
       source.onopen = () => {
-        if (!disposed) handlers.onConnection('live');
+        if (disposed) return;
+        consecutiveSseErrors = 0;
+        stopFallbackPolling();
+        handlers.onConnection('live');
+        if (wasDisconnected) {
+          wasDisconnected = false;
+          void pullSnapshot();
+        }
       };
 
       source.addEventListener('revision', (evt) => {
@@ -114,40 +140,54 @@ export class HttpSseRoomClient implements RoomRepository {
 
       source.onerror = () => {
         if (disposed) return;
-        handlers.onConnection('reconnecting');
+        wasDisconnected = true;
+        consecutiveSseErrors += 1;
+        handlers.onConnection(
+          typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'reconnecting',
+        );
+        if (source?.readyState === EventSource.CLOSED || consecutiveSseErrors >= 2) {
+          startFallbackPolling();
+        }
       };
-    };
-
-    const startFallbackPolling = () => {
-      if (pollTimer !== null) return;
-      pollTimer = window.setInterval(() => {
-        void pullSnapshot();
-      }, 6000);
     };
 
     const onVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
         source?.close();
         source = null;
-        if (pollTimer !== null) {
-          clearInterval(pollTimer);
-          pollTimer = null;
-        }
+        consecutiveSseErrors = 0;
+        stopFallbackPolling();
       } else {
         void pullSnapshot();
         connectSse();
       }
     };
 
+    const onOffline = () => {
+      if (disposed) return;
+      wasDisconnected = true;
+      handlers.onConnection('offline');
+    };
+
+    const onOnline = () => {
+      if (disposed) return;
+      void pullSnapshot();
+      connectSse();
+    };
+
     document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('offline', onOffline);
+    window.addEventListener('online', onOnline);
     connectSse();
 
     return () => {
       disposed = true;
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', onOnline);
       inFlightFetch?.abort();
       source?.close();
-      if (pollTimer !== null) clearInterval(pollTimer);
+      stopFallbackPolling();
     };
   }
 
@@ -163,10 +203,47 @@ export class HttpSseRoomClient implements RoomRepository {
       return response.json();
     }
 
-    if (response.status === 404) throw new NotFoundError();
-    if (response.status === 403) throw new ForbiddenError();
-    if (response.status === 409) throw new RevisionConflictError();
-    if (response.status === 410) throw new RoomClosedError();
-    throw new NetworkError(`请求失败（${response.status}），请稍后重试。`);
+    const body = (await response.json().catch(() => null)) as {
+      error?: { code?: unknown; message?: unknown };
+      code?: unknown;
+      message?: unknown;
+    } | null;
+
+    const rawCode = body?.error?.code ?? body?.code;
+    const rawMsg = body?.error?.message ?? body?.message;
+    const code = typeof rawCode === 'string' && rawCode.trim() ? rawCode.trim() : null;
+    const message = typeof rawMsg === 'string' && rawMsg.trim() ? rawMsg.trim() : undefined;
+
+    if (code === 'NOT_FOUND' || response.status === 404) {
+      throw new NotFoundError(message);
+    }
+    if (code === 'ORIGIN_FORBIDDEN') {
+      throw new RepositoryError(
+        'ORIGIN_FORBIDDEN',
+        message ?? '来源校验失败，请从原页面重新打开后再试。',
+      );
+    }
+    if (code === 'OWNER_REQUIRED' || response.status === 403) {
+      throw new ForbiddenError(message);
+    }
+    if (code === 'IDEMPOTENCY_CONFLICT') {
+      throw new RepositoryError(
+        'IDEMPOTENCY_CONFLICT',
+        message ?? '请求编号冲突，请刷新后重试。',
+      );
+    }
+    if (code === 'REVISION_CONFLICT' || response.status === 409) {
+      throw new RevisionConflictError(message);
+    }
+    if (code === 'ROOM_CLOSED' || response.status === 410) {
+      throw new RoomClosedError(message);
+    }
+    if (code === 'INVALID_INPUT' || response.status === 400) {
+      throw new RepositoryError(
+        'INVALID_INPUT',
+        message ?? '输入参数不合法，请检查后重试。',
+      );
+    }
+    throw new NetworkError(message ?? `请求失败（${response.status}），请稍后重试。`);
   }
 }

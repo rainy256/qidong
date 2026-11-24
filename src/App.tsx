@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
+import { HttpSseRoomClient } from './api/httpSseClient';
 import { mockRoomClient, type DemoControlState } from './api/mockClient';
+import type { RoomRepository } from './api/repository';
 import { DemoToolbar } from './components/DemoToolbar';
 import type { RoomSnapshot } from './domain/types';
 import { CreateRoomPage } from './pages/CreateRoomPage';
 import { RoomPage } from './pages/RoomPage';
+
+const useMock = import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.MODE === 'mock';
+const httpRoomClient = new HttpSseRoomClient('/api');
+const activeRepository: RoomRepository = useMock ? mockRoomClient : httpRoomClient;
 
 type RouteState = Readonly<{
   pathname: string;
@@ -12,7 +18,7 @@ type RouteState = Readonly<{
 
 function readLocation(): RouteState {
   if (typeof window === 'undefined') {
-    return { pathname: '/r/demo-almost', search: '' };
+    return { pathname: useMock ? '/r/demo-almost' : '/', search: '' };
   }
   return {
     pathname: window.location.pathname,
@@ -28,6 +34,7 @@ export function App() {
   const [activeSnapshot, setActiveSnapshot] = useState<RoomSnapshot | null>(null);
 
   useEffect(() => {
+    if (!useMock) return;
     return mockRoomClient.subscribeControls(() => {
       setControls(mockRoomClient.getControlState());
     });
@@ -56,25 +63,28 @@ export function App() {
         <RoomPage
           roomId={roomId}
           justCreated={justCreated}
-          repository={mockRoomClient}
-          denyClipboard={controls.denyClipboard}
+          repository={activeRepository}
+          denyClipboard={useMock ? controls.denyClipboard : false}
           onNavigate={navigate}
           onRoomLoaded={setActiveSnapshot}
         />
       ) : (
         <CreateRoomPage
-          repository={mockRoomClient}
+          repository={activeRepository}
+          showDemoLink={useMock}
           onCreated={(newId) => navigate(`/r/${encodeURIComponent(newId)}?created=1`)}
           onNavigate={navigate}
         />
       )}
 
-      <DemoToolbar
-        currentPath={route.pathname}
-        activeRoomId={roomId}
-        currentDurationSlots={activeSnapshot?.durationSlots}
-        onNavigate={navigate}
-      />
+      {useMock && (
+        <DemoToolbar
+          currentPath={route.pathname}
+          activeRoomId={roomId}
+          currentDurationSlots={activeSnapshot?.durationSlots}
+          onNavigate={navigate}
+        />
+      )}
     </>
   );
 }

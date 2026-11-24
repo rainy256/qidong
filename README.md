@@ -4,7 +4,7 @@
 点开群链接即可直接填自己有空的时段，实时同步所有人进度，并按「全程连续可玩人数交集」自动算出最靠谱的开局时间。
 
 > **架构路线：方案 A**（React + Vite + Fastify + SQLite WAL + SSE + Nginx 单机同域部署）  
-> **当前进度：Phase 1 手机端前端模板与核心领域引擎已完成并实机验收通过**；Phase 2 后端接口、SQLite 持久化与 SSE 实时广播等待接入（前端已预留统一 `RoomRepository` 契约与 `HttpSseRoomClient`）。
+> **当前进度：Phase 1 前端与 Phase 2 Fastify + SQLite (WAL) + SSE 后端均已实现并完成联调。**
 
 ---
 
@@ -12,12 +12,21 @@
 
 ```bash
 npm install
-npm run dev      # 默认监听 http://127.0.0.1:5173
-npm test         # 运行 Vitest 纯领域推荐算法单测（5 项核心用例）
-npm run build    # TypeScript 类型检查 + Vite 生产打包
+
+# 联调模式（默认连接 Fastify + SQLite 真实后端）：
+npm run dev:server  # 启动后端，监听 http://127.0.0.1:3000
+npm run dev         # 启动前端，监听 http://127.0.0.1:5173（自动代理 /api -> 127.0.0.1:3000）
+
+# 纯前端演示模式（使用内存 Mock 与演示控制台）：
+npm run dev:mock    # 监听 http://127.0.0.1:5173
+
+# 测试与构建：
+npm test            # 运行 Vitest 领域推荐算法 + 后端 API/SSE/并发集成测试
+npm run build       # TypeScript 类型检查（前端 + 后端）+ Vite 生产打包
+npm run start:server
 ```
 
-### 本地预览入口（当前内置 Mock 数据 + 演示控制台）
+### 本地预览入口（Mock 演示模式 `npm run dev:mock` 可直接访问）
 
 - **建房页：** `http://127.0.0.1:5173/`（狂奔小黄豆横幅 + `Apex` / `GTA` / `塔科夫` / `自定义` 贴纸墙 + 撕页日历）
 - **主推演示车票（差 1 人凑齐）：** `http://127.0.0.1:5173/r/demo-almost`
@@ -30,10 +39,22 @@ npm run build    # TypeScript 类型检查 + Vite 生产打包
 
 ```text
 .
+├── deploy/
+│   ├── nginx.conf               # 生产 Nginx 同域反代与 SSE 防缓冲配置
+│   └── yueju.service            # systemd 单进程托管配置
 ├── docs/
 │   ├── PROJECT_PLAN.md          # 完整产品设计、视觉定稿、推荐算法与方案 A 架构规划
 │   ├── API_CONTRACT.md          # SQLite DDL、5 个同源 API + SSE 契约与 Nginx 配置
 │   └── HANDOFF.md               # 给新对话 / 接力开发的上下文与 Phase 2 实施清单
+├── server/
+│   ├── index.ts                 # 后端服务启动入口与过期房间定期清理
+│   ├── app.ts                   # Fastify 路由、Origin 校验、HttpOnly Cookie 与 SSE 接入
+│   ├── db.ts                    # SQLite (WAL) 事务持久化与双版本并发控制
+│   ├── sseHub.ts                # 房间级 SSE 订阅广播与 25s 心跳
+│   ├── security.ts              # 高熵 ID/Token 生成、SHA-256 + Pepper 哈希与同源校验
+│   ├── validation.ts            # 请求体合法性校验
+│   ├── config.ts                # 环境变量配置解析
+│   └── server.test.ts           # Vitest 后端并发、409/410、SSE、CSRF 与反例集成测试
 ├── public/art/                  # 确认保留的 5 张小黄豆系列美术资源（严禁绿色）
 │   ├── hero-runner.png          # 顶部狂奔小黄豆（240×352）
 │   ├── game-apex.png            # Apex 变幻小黄豆（850×850）

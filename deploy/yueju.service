@@ -1,0 +1,23 @@
+[Unit]
+Description=Qidong / Yueju Fastify + SQLite Backend
+After=network.target
+
+[Service]
+Type=simple
+User=yueju
+Group=yueju
+WorkingDirectory=/var/www/yueju-web
+EnvironmentFile=/var/www/yueju-web/.env
+Environment=NODE_ENV=production
+Environment=HOST=127.0.0.1
+Environment=PORT=3000
+ExecStart=/var/www/yueju-web/node_modules/.bin/tsx server/index.ts
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/www/yueju-web/data
+
+[Install]
+WantedBy=multi-user.target

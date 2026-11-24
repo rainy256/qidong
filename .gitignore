@@ -9,6 +9,7 @@ dist/
 !.env.example
 
 # SQLite databases & journals
+data/
 *.db
 *.db-wal
 *.db-shm

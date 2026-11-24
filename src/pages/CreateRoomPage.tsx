@@ -14,6 +14,7 @@ import styles from './CreateRoomPage.module.css';
 
 type CreateRoomPageProps = Readonly<{
   repository: RoomRepository;
+  showDemoLink?: boolean;
   onCreated: (roomId: string) => void;
   onNavigate: (path: string) => void;
 }>;
@@ -77,6 +78,7 @@ const DURATION_PRESETS = [
 
 export function CreateRoomPage({
   repository,
+  showDemoLink = true,
   onCreated,
   onNavigate,
 }: CreateRoomPageProps) {
@@ -193,18 +195,20 @@ export function CreateRoomPage({
             <span className={styles.brandName}>约局</span>
             <span className={styles.brandSticker}>免登录 · 10秒开黑</span>
           </div>
-          <a
-            href="/r/demo-almost"
-            className={styles.demoLink}
-            onClick={(e) => {
-              e.preventDefault();
-              onNavigate('/r/demo-almost');
-            }}
-          >
-            <Sparkles size={14} aria-hidden="true" />
-            <span>演示车票</span>
-            <ArrowRight size={14} aria-hidden="true" />
-          </a>
+          {showDemoLink && (
+            <a
+              href="/r/demo-almost"
+              className={styles.demoLink}
+              onClick={(e) => {
+                e.preventDefault();
+                onNavigate('/r/demo-almost');
+              }}
+            >
+              <Sparkles size={14} aria-hidden="true" />
+              <span>演示车票</span>
+              <ArrowRight size={14} aria-hidden="true" />
+            </a>
+          )}
         </header>
 
         <form className={styles.form} onSubmit={handleSubmit}>

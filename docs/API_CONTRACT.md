@@ -63,8 +63,20 @@ CREATE TABLE IF NOT EXISTS mutations (
   scope TEXT NOT NULL,                 -- 'create' | 'save:<roomId>:<memberTokenHash>' | 'close:<roomId>'
   mutation_id TEXT NOT NULL,
   room_revision INTEGER NOT NULL,
+  room_id TEXT,                        -- 关联房间 ID（建房幂等重放时用于找回已创建房间）
+  request_hash TEXT,                   -- SHA-256(规范化请求内容)，防止同 mutation_id 被不同请求体误复用
   created_at TEXT NOT NULL,
   PRIMARY KEY (scope, mutation_id)
+);
+```
+
+### 1.4 `schema_migrations` 表（版本化迁移）
+
+```sql
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  name TEXT NOT NULL,
+  applied_at TEXT NOT NULL
 );
 ```
 
@@ -76,7 +88,12 @@ CREATE TABLE IF NOT EXISTS mutations (
   - `yj_owner_<roomId>`（或统一签名会话 Cookie）：`HttpOnly; Secure; SameSite=Lax; Path=/api/rooms/<roomId>`（建房 `POST /api/rooms` 时下发）
   - `yj_member`（全局高熵随机成员凭证，用于在同一浏览器自动认出本人跨房间或单房间身份）：`HttpOnly; Secure; SameSite=Lax; Path=/`
   - 若 `GET /api/rooms/:id` 检测到请求未带 `yj_member`，可签发新 `yj_member` Cookie，但**此时不写入 `participants` 表**。
-- **CSRF 防护**：所有 `POST` / `PUT` / `DELETE` 接口必须校验请求头 `Origin`（或缺失时兜底校验同源 `Referer`），不匹配部署域名直接返回 `403`。
+- **CSRF 防护**：所有 `POST` / `PUT` / `DELETE` 接口必须校验请求头 `Origin`（或缺失时兜底校验同源 `Referer`），不匹配部署域名直接返回 `403`（`ORIGIN_FORBIDDEN`）。
+- **统一错误响应格式**：所有 `4xx` / `5xx` 错误统一返回：
+  ```json
+  { "error": { "code": "REVISION_CONFLICT", "message": "你在其他设备或窗口已经更新过填写，请先刷新查看最新内容。" } }
+  ```
+  常用业务 `code` 包括：`INVALID_INPUT` (`400`)、`ORIGIN_FORBIDDEN` (`403`)、`OWNER_REQUIRED` (`403`)、`NOT_FOUND` (`404`)、`REVISION_CONFLICT` (`409`)、`IDEMPOTENCY_CONFLICT` (`409`)、`ROOM_CLOSED` (`410`)。
 - **房主也能提交时段**：若房主同时作为玩家参与填写，房主凭证与成员凭证互不干扰，`viewer.canClose = true` 与 `viewer.memberId` 可同时返回。
 
 ---
@@ -210,8 +227,14 @@ CREATE TABLE IF NOT EXISTS mutations (
 
 - **请求体**：`{ "mutationId": "close_1795531999_xy89" }`
 - **校验与行为**：
-  - 仅校验 `owner_token_hash` 匹配者可执行，否则 `403 Forbidden`。
+  - 仅校验 `owner_token_hash` 匹配者可执行，否则 `403 Forbidden`（`OWNER_REQUIRED`）。
   - 原子更新 `closed_at = COALESCE(closed_at, ?)` 并递增 `room_revision`，写入 `mutations`，提交后广播新 `roomRevision`，返回 `200 OK` + `RoomSnapshot`。
+
+### 3.7 健康与就绪探针
+
+- `GET /healthz`：检查服务进程存活，返回 `200 { "ok": true, "status": "alive" }`。
+- `GET /readyz`：检查 SQLite 数据库读写与 WAL 模式就绪，返回 `200 { "ok": true, "status": "ready", "journalMode": "wal" }`（异常时返回 `503`）。
+- `GET /api/health`：通过 Nginx `/api/` 转发的健康探针，返回 `200 { "ok": true }`。
 
 ---
 
