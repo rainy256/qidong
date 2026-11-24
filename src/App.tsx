@@ -7,8 +7,9 @@ import type { RoomSnapshot } from './domain/types';
 import { CreateRoomPage } from './pages/CreateRoomPage';
 import { RoomPage } from './pages/RoomPage';
 
-const useMock = import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.MODE === 'mock';
-const httpRoomClient = new HttpSseRoomClient('/api');
+const cloudflare = import.meta.env.MODE === 'cloudflare';
+const useMock = !cloudflare && (import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.MODE === 'mock');
+const httpRoomClient = new HttpSseRoomClient('/api', cloudflare ? 'poll' : 'sse');
 const activeRepository: RoomRepository = useMock ? mockRoomClient : httpRoomClient;
 
 type RouteState = Readonly<{
@@ -61,6 +62,7 @@ export function App() {
     <>
       {roomId ? (
         <RoomPage
+          key={roomId}
           roomId={roomId}
           justCreated={justCreated}
           repository={activeRepository}
