@@ -273,7 +273,7 @@ export class RoomDatabase {
   checkReady(): { ok: boolean; journalMode: string } {
     const ok = this.ping();
     const journalMode = this.getJournalMode();
-    return { ok, journalMode };
+    return { ok: ok && journalMode === 'wal', journalMode };
   }
 
   close(): void {
@@ -283,8 +283,7 @@ export class RoomDatabase {
   createRoom(
     input: ValidatedCreateRoomBody,
     ownerTokenHash: string,
-    memberTokenHash: string | null,
-    existingOwnerHashForRoomLookup: (roomId: string) => string | null,
+    memberTokenHash: string,
     roomTtlDays: number,
   ): CreateRoomResult {
     const requestHash = hashPayload({
@@ -295,11 +294,12 @@ export class RoomDatabase {
       durationSlots: input.durationSlots,
     });
 
+    const scope = `create:${memberTokenHash}`;
     const tx = this.db.transaction((): CreateRoomResult => {
       const nowMs = Date.now();
       const nowIso = new Date(nowMs).toISOString();
 
-      const existingMutation = this.stmtGetMutation.get('create', input.mutationId);
+      const existingMutation = this.stmtGetMutation.get(scope, input.mutationId);
       if (existingMutation?.room_id) {
         const existingRoom = this.stmtGetActiveRoom.get(existingMutation.room_id, nowIso);
         if (existingRoom) {
@@ -307,15 +307,14 @@ export class RoomDatabase {
             throw new DbIdempotencyConflictError();
           }
           const participants = this.stmtGetParticipants.all(existingRoom.id);
-          const ownerHash = existingOwnerHashForRoomLookup(existingRoom.id);
-          const canClose =
-            ownerHash !== null && timingSafeHashEqual(ownerHash, existingRoom.owner_token_hash);
+          const canClose = timingSafeHashEqual(ownerTokenHash, existingRoom.owner_token_hash);
+          if (!canClose) throw new DbForbiddenError();
           return {
             created: false,
             snapshot: buildSnapshot(existingRoom, participants, memberTokenHash, canClose, nowIso),
           };
         }
-        this.stmtDeleteMutation.run('create', input.mutationId);
+        this.stmtDeleteMutation.run(scope, input.mutationId);
       }
 
       let roomId = generateRoomId();
@@ -337,7 +336,7 @@ export class RoomDatabase {
         expiresAt,
         nowIso,
       );
-      this.stmtInsertMutation.run('create', input.mutationId, 1, roomId, requestHash, nowIso);
+      this.stmtInsertMutation.run(scope, input.mutationId, 1, roomId, requestHash, nowIso);
 
       const createdRoom = this.stmtGetActiveRoom.get(roomId, nowIso)!;
       return {
@@ -387,10 +386,6 @@ export class RoomDatabase {
       if (!room) {
         throw new DbNotFoundError();
       }
-      if (room.closed_at !== null) {
-        throw new DbRoomClosedError();
-      }
-
       const canClose =
         viewerOwnerHash !== null && timingSafeHashEqual(viewerOwnerHash, room.owner_token_hash);
 
@@ -426,6 +421,8 @@ export class RoomDatabase {
           snapshot: buildSnapshot(room, participants, memberTokenHash, canClose, nowIso),
         };
       }
+
+      if (room.closed_at !== null) throw new DbRoomClosedError();
 
       const existingParticipant = this.stmtGetParticipantByHash.get(roomId, memberTokenHash);
       if (!existingParticipant && input.baseMineRevision !== 0) {
