@@ -18,12 +18,12 @@ export class HttpSseRoomClient implements RoomRepository {
   private readonly baseUrl: string;
 
   private sessionReady: Promise<void> | null = null;
-  constructor(baseUrl = '/api', private readonly syncMode: 'sse' | 'poll' = 'sse') {
+  constructor(baseUrl = '/api', private readonly syncMode: 'sse' | 'poll' = 'sse', private readonly bootstrapSession = syncMode === 'poll') {
     this.baseUrl = baseUrl;
   }
 
   private async ensureSession(): Promise<void> {
-    if (this.syncMode !== 'poll') return;
+    if (!this.bootstrapSession) return;
     // Single flight per tab, including React StrictMode's duplicate initial effects.
     if (!this.sessionReady) {
       this.sessionReady = this.fetchJson(`${this.baseUrl}/session`, {
