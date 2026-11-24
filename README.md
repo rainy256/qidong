@@ -1,29 +1,33 @@
-# 启动 / 约局车票 (`qidong`)
+# 启动 / 约局车票 (qidong)
 
-面向 **微信 / QQ 熟人群与游戏开黑车队** 的免登录约玩时间同步网站。  
-点开群链接即可直接填自己有空的时段，实时同步所有人进度，并按「全程连续可玩人数交集」自动算出最靠谱的开局时间。
+面向微信 / QQ 熟人群与游戏开黑车队的免登录约玩时间同步网站。全程连续可玩人数交集推荐。
 
-> **架构路线：方案 A**（React + Vite + Fastify + SQLite WAL + SSE + Nginx 单机同域部署）  
-> **当前进度：Phase 1 前端与 Phase 2 Fastify + SQLite (WAL) + SSE 后端均已实现并完成联调。**
+**主方案：Cloudflare Workers + Static Assets + D1，前台每 6 秒同步。** 无需自购服务器。Fastify + SQLite WAL + SSE 保留作为独立备用方案，不与 D1 共享数据。
 
----
+当前：Cloudflare 适配及修复代码已提交；自动化测试、真实 Cloudflare 部署和微信双机验收须实际运行确认。
+
+## 首次上线
+
+完整步骤见 [Cloudflare 部署指南](docs/CLOUDFLARE.md)。创建 D1 数据库 qidong-db，将 database_id 填入 wrangler.jsonc。连接 GitHub main 分支到 Workers，项目名 qidong，构建命令 npm run build:cloudflare，部署命令 npm run deploy:cloudflare，配置运行时 TOKEN_PEPPER Secret。
 
 ## 快速开始
 
 ```bash
-npm install
+npm ci
+npm test
+npm run typecheck
+npm run build
+# 本地 Cloudflare 模式：先创建 .dev.vars（参考 .dev.vars.example）
+npm run d1:local
+npm run dev:cloudflare
 
-# 联调模式（默认连接 Fastify + SQLite 真实后端）：
-npm run dev:server  # 启动后端，监听 http://127.0.0.1:3000
-npm run dev         # 启动前端，监听 http://127.0.0.1:5173（自动代理 /api -> 127.0.0.1:3000）
-
-# 纯前端演示模式（使用内存 Mock 与演示控制台）：
-npm run dev:mock    # 监听 http://127.0.0.1:5173
-
-# 测试与构建：
-npm test            # 运行 Vitest 领域推荐算法 + 后端 API/SSE/并发集成测试
-npm run build       # TypeScript 类型检查（前端 + 后端）+ Vite 生产打包
-npm run start:server
+# 备用 Fastify：两个终端分别运行
+npm run dev:server
+npm run dev
+# Fastify 生产前端
+npm run build:server
+# Mock 演示
+npm run dev:mock
 ```
 
 ### 本地预览入口（Mock 演示模式 `npm run dev:mock` 可直接访问）
@@ -43,9 +47,9 @@ npm run start:server
 │   ├── nginx.conf               # 生产 Nginx 同域反代与 SSE 防缓冲配置
 │   └── yueju.service            # systemd 单进程托管配置
 ├── docs/
-│   ├── PROJECT_PLAN.md          # 完整产品设计、视觉定稿、推荐算法与方案 A 架构规划
+│   ├── PROJECT_PLAN.md          # 完整产品设计、视觉定稿、推荐算法与产品与架构规划
 │   ├── API_CONTRACT.md          # SQLite DDL、5 个同源 API + SSE 契约与 Nginx 配置
-│   └── HANDOFF.md               # 给新对话 / 接力开发的上下文与 Phase 2 实施清单
+│   └── HANDOFF.md               # 给新对话 / 接力开发的上下文与 接力与验收清单
 ├── server/
 │   ├── index.ts                 # 后端服务启动入口与过期房间定期清理
 │   ├── app.ts                   # Fastify 路由、Origin 校验、HttpOnly Cookie 与 SSE 接入
@@ -65,7 +69,7 @@ npm run start:server
     ├── api/
     │   ├── repository.ts        # 唯一仓库抽象 RoomRepository 与错误类型
     │   ├── mockClient.ts        # Phase 1 本地内存 Mock 实现（带幂等、SSE 推送模拟）
-    │   └── httpSseClient.ts     # Phase 2 真实同源 HTTP + SSE 客户端（待接入后端）
+    │   └── httpSseClient.ts     # 同源 HTTP + SSE / 轮询客户端
     ├── domain/
     │   ├── types.ts             # Slot / Span / Night / Pick / RoomSnapshot 等共享类型
     │   ├── time.ts              # Asia/Shanghai 半小时格点转换与「次日」跨午夜格式化
@@ -79,10 +83,12 @@ npm run start:server
 
 ---
 
-## 下一步怎么继续？
+## 云端新增文件
 
-请在新对话中先阅读以下三份文档即可直接接力开发 Phase 2（Fastify + SQLite WAL + SSE 后端）：
+- worker/index.ts：Worker HTTP API、会话和幂等
+- worker/migrations/0001_initial.sql：D1 原子写入触发器
+- worker/worker.test.ts：Worker API/SQLite 适配测试
+- wrangler.jsonc：静态资源、D1 绑定与定时清理
+- docs/CLOUDFLARE.md：首次部署和验收
 
-1. [`docs/HANDOFF.md`](./docs/HANDOFF.md) — **新对话首读**：现状盘点、不可违背的用户偏好约束、Phase 2 分步任务清单
-2. [`docs/PROJECT_PLAN.md`](./docs/PROJECT_PLAN.md) — **产品与技术总纲**：与 Codex (`gpt-6.2-astra`) 收敛的核心产品决策、算法规则与交付路线
-3. [`docs/API_CONTRACT.md`](./docs/API_CONTRACT.md) — **前后端接口契约**：SQLite 表结构、5 个 `/api/rooms` 接口、`EventSource` 协议与 Nginx SSE 配置
+继续开发请阅读 [HANDOFF](docs/HANDOFF.md)、[PROJECT_PLAN](docs/PROJECT_PLAN.md) 和 [API_CONTRACT](docs/API_CONTRACT.md)。
