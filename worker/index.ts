@@ -139,11 +139,11 @@ export default {
       if(url.protocol!=='https:' && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) {
         throw new ApiError(400,'HTTPS_REQUIRED','请使用 HTTPS 访问。');
       }
+      const sign=await signer(env.TOKEN_PEPPER);
       if(path==='/api/health' && method==='GET') {
         await env.DB.prepare('SELECT id FROM rooms LIMIT 1').first();
         return json({ok:true,syncMode:'poll'});
       }
-      const sign=await signer(env.TOKEN_PEPPER);
       const token=session(request,url);
       if(path==='/api/session' && method==='GET') {
         if(token) return json({ok:true});
