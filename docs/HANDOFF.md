@@ -1,6 +1,6 @@
 # 新对话接力指南（Handoff Guide）
 
-如果你是在新的对话窗口打开本仓库，请先快速阅读本文件，即可在 1 分钟内准确接手 **Phase 2（Fastify + SQLite WAL + SSE 后端接入与上线）**，无需重新摸索或推翻现有前端设计。
+当前主部署方案为 Cloudflare Workers + D1。先读 [CLOUDFLARE.md](CLOUDFLARE.md)，再根据实际测试结果继续部署；不要推翻既有界面。以下 Phase 1 与 Fastify 部分为历史实现及备用部署记录。
 
 ---
 
@@ -34,7 +34,7 @@
 
 ---
 
-## 3. 下一步 Phase 2 实施建议清单
+## 3. 历史 Phase 2 实施清单（Fastify 备用方案）
 
 建议按以下顺序推进后端与前后端联调：
 
@@ -52,3 +52,8 @@
 4. **准备部署清单**：
    - 输出 `systemd` unit 文件与生产 `nginx.conf`（SSE 关闭 `proxy_buffering` 与 `gzip`）。
    - 用两台真机在微信内置浏览器实测：建房 → 群聊打开 → 填时段保存 → 切出微信聊天再切回自动同步 → 锁场只读。
+
+
+## 最新接力任务
+
+Cloudflare 代码、D1 migration、轮询和幂等修复已提交。请先实际执行 npm test、npm run typecheck 和 npm run build:cloudflare；验证 D1 数据库绑定与运行时密钥、首次迁移，再进行微信双机验收。不要将代码提交视为测试通过或已经上线。
