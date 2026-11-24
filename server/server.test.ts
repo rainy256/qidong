@@ -11,6 +11,7 @@ import { buildServer, type ServerContext } from './app';
 
 const TEST_HOST = '127.0.0.1:3000';
 const TEST_ORIGIN = `http://${TEST_HOST}`;
+const TEST_MEMBER = 'a'.repeat(64);
 
 function extractCookieValue(setCookieHeader: string | string[] | undefined, name: string): string | null {
   if (!setCookieHeader) return null;
@@ -139,6 +140,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
       headers: {
         host: TEST_HOST,
         origin: TEST_ORIGIN,
+        cookie: `yj_member=${TEST_MEMBER}`,
       },
       payload: {
         title: '周五晚 Apex 三排',
@@ -155,7 +157,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     return {
       res,
       snapshot,
-      memberCookie: extractCookieValue(setCookie, 'yj_member'),
+      memberCookie: TEST_MEMBER,
       ownerCookie: extractCookieValue(setCookie, `yj_owner_${snapshot.id}`),
     };
   }
@@ -206,7 +208,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     const replay = await ctx.app.inject({
       method: 'POST',
       url: '/api/rooms',
-      headers: { host: TEST_HOST, origin: TEST_ORIGIN },
+      headers: { host: TEST_HOST, origin: TEST_ORIGIN, cookie: `yj_member=${TEST_MEMBER}` },
       payload: {
         title: '周五晚 Apex 三排',
         gameTag: 'apex',
@@ -218,13 +220,28 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     });
     expect(replay.statusCode).toBe(200);
     expect(replay.json<RoomSnapshot>().id).toBe(snapshot.id);
+    expect(replay.json<RoomSnapshot>().viewer.canClose).toBe(true);
+    expect(extractCookieValue(replay.headers['set-cookie'], `yj_owner_${snapshot.id}`)).toBe(ownerCookie);
     expect(ctx.db.countRows('rooms')).toBe(1);
+
+    const bootstrap = await ctx.app.inject({method:'GET',url:'/api/session'});
+    const otherToken = extractCookieValue(bootstrap.headers['set-cookie'],'yj_member');
+    expect(otherToken).toBeTruthy();
+    expect(otherToken).not.toBe(memberCookie);
+    // A different session using the same mutation key cannot obtain this room.
+    const other = await ctx.app.inject({
+      method:'POST',url:'/api/rooms',
+      headers:{host:TEST_HOST,origin:TEST_ORIGIN,cookie:`yj_member=${otherToken}`},
+      payload:{title:'周五晚 Apex 三排',gameTag:'apex',nights:[sampleNight],targetPlayers:3,durationSlots:4,mutationId:'create_idem_1'}
+    });
+    expect(other.statusCode).toBe(201);
+    expect(other.json<RoomSnapshot>().id).not.toBe(snapshot.id);
 
     // Invalid payload -> 400
     const badRes = await ctx.app.inject({
       method: 'POST',
       url: '/api/rooms',
-      headers: { host: TEST_HOST, origin: TEST_ORIGIN },
+      headers: { host: TEST_HOST, origin: TEST_ORIGIN, cookie: `yj_member=${TEST_MEMBER}` },
       payload: {
         title: '   ',
         nights: [sampleNight],
@@ -471,7 +488,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     const createRes = await ctx.app.inject({
       method: 'POST',
       url: '/api/rooms',
-      headers: { host: liveHost, origin: liveOrigin },
+      headers: { host: liveHost, origin: liveOrigin, cookie: `yj_member=${TEST_MEMBER}` },
       payload: {
         title: 'SSE 联调房',
         gameTag: 'tarkov',
@@ -549,6 +566,16 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     expect(closedSnap.roomRevision).toBe(3);
     await sse1.waitForText('event: revision\ndata: {"roomRevision":3}');
     sse1.close();
+    await expect.poll(() => ctx.sseHub.clientCount(room.id)).toBe(0);
+
+    // Save whose response was lost before closure is still an idempotent success.
+    const saveReplay = await ctx.app.inject({
+      method:'PUT',url:`/api/rooms/${room.id}/me`,
+      headers:{host:liveHost,origin:liveOrigin,cookie:`yj_member=${memberToken}`},
+      payload:{nickname:'阿九',answer:{kind:'available',picks:[{nightId:sampleNight.id,from:t20,to:t22}]},baseMineRevision:0,mutationId:'sse_save_1'}
+    });
+    expect(saveReplay.statusCode).toBe(200);
+    expect(saveReplay.json<RoomSnapshot>().roomRevision).toBe(3);
 
     // 6. Replay closure -> 200, roomRevision stays 3
     const closeReplay = await ctx.app.inject({
@@ -614,7 +641,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     const sameRef = await ctx.app.inject({
       method: 'POST',
       url: '/api/rooms',
-      headers: { host: TEST_HOST, referer: `${TEST_ORIGIN}/` },
+      headers: { host: TEST_HOST, referer: `${TEST_ORIGIN}/`, cookie: `yj_member=${TEST_MEMBER}` },
       payload: basePayload,
     });
     expect(sameRef.statusCode).toBe(201);
@@ -711,7 +738,7 @@ describe('Phase 2 Fastify + SQLite WAL + SSE backend', () => {
     const createMismatch = await ctx.app.inject({
       method: 'POST',
       url: '/api/rooms',
-      headers: { host: TEST_HOST, origin: TEST_ORIGIN },
+      headers: { host: TEST_HOST, origin: TEST_ORIGIN, cookie: `yj_member=${TEST_MEMBER}` },
       payload: {
         title: '篡改后的标题',
         gameTag: 'apex',
