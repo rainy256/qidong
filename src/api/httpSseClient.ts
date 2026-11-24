@@ -83,7 +83,7 @@ export class HttpSseRoomClient implements RoomRepository {
     let wasDisconnected = false;
     let consecutiveSseErrors = 0;
     let source: EventSource | null = null;
-    let pollTimer: ReturnType<typeof setInterval> | null = null;
+    let pollTimer: number | null = null;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
     let connectTimer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: AbortController | null = null;
