@@ -9,7 +9,7 @@ import { RoomPage } from './pages/RoomPage';
 
 const cloudflare = import.meta.env.MODE === 'cloudflare';
 const useMock = !cloudflare && (import.meta.env.VITE_USE_MOCK === 'true' || import.meta.env.MODE === 'mock');
-const httpRoomClient = new HttpSseRoomClient('/api', cloudflare ? 'poll' : 'sse');
+const httpRoomClient = new HttpSseRoomClient('/api', cloudflare ? 'poll' : 'sse', true);
 const activeRepository: RoomRepository = useMock ? mockRoomClient : httpRoomClient;
 
 type RouteState = Readonly<{
