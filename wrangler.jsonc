@@ -10,8 +10,8 @@
   "d1_databases": [{
     "binding": "DB",
     "database_name": "qidong-db",
+    "database_id": "ad7165db-204e-4faf-b54f-9510ed53713a",
     "migrations_dir": "worker/migrations"
-    // Add database_id here after creating the production D1 database.
   }],
   "vars": { "ROOM_TTL_DAYS": "30" },
   "triggers": { "crons": ["0 */6 * * *"] },
