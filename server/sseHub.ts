@@ -1,4 +1,4 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { ServerResponse } from 'node:http';
 
 export type SseSubscription = Readonly<{
   sendRevision: (roomRevision: number) => void;
@@ -18,7 +18,6 @@ export class RoomEventHub {
   subscribe(
     roomId: string,
     res: ServerResponse,
-    req: IncomingMessage,
     heartbeatMs: number,
   ): SseSubscription {
     let closed = false;
@@ -30,7 +29,6 @@ export class RoomEventHub {
         if (closed) return;
         closed = true;
         clearInterval(client.timer);
-        req.off('close', client.cleanup);
         res.off('close', client.cleanup);
         res.off('error', client.cleanup);
 
@@ -50,7 +48,7 @@ export class RoomEventHub {
         return;
       }
       try {
-        res.write(chunk);
+        if (!res.write(chunk)) { res.destroy(); client.cleanup(); }
       } catch {
         client.cleanup();
       }
@@ -68,7 +66,6 @@ export class RoomEventHub {
     }
     set.add(client);
 
-    req.on('close', client.cleanup);
     res.on('close', client.cleanup);
     res.on('error', client.cleanup);
 
@@ -94,7 +91,7 @@ export class RoomEventHub {
         continue;
       }
       try {
-        client.res.write(payload);
+        if (!client.res.write(payload)) { client.res.destroy(); client.cleanup(); }
       } catch {
         client.cleanup();
       }
