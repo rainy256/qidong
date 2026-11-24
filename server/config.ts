@@ -60,8 +60,12 @@ export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
   const envPepper = process.env.TOKEN_PEPPER?.trim();
   const isProd = process.env.NODE_ENV === 'production';
 
-  if (overrides.tokenPepper === undefined && isProd && !envPepper) {
-    throw new Error('TOKEN_PEPPER environment variable must be set when NODE_ENV=production');
+  const productionPepper = overrides.tokenPepper ?? envPepper;
+  if (isProd && (!productionPepper || productionPepper.length < 32 || /replace|change.in.production|example/i.test(productionPepper))) {
+    throw new Error('Production TOKEN_PEPPER must be a new random secret of at least 32 characters');
+  }
+  if (isProd && (overrides.cookieSecure ?? parseCookieSecure(process.env.COOKIE_SECURE)) === 'false') {
+    throw new Error('Production cookies must be Secure');
   }
 
   return {
