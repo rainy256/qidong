@@ -1,6 +1,7 @@
 import { AlertCircle, ArrowRight, Check, Minus, Plus, Sparkles } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import type { RoomRepository } from '../api/repository';
+import { NetworkError, RepositoryError, type RoomRepository } from '../api/repository';
+import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
 import { getAvatarTone } from '../components/AvatarChip';
 import { GameStickerArt, HeroSquadIllustration } from '../components/GameArtwork';
 import {
@@ -100,7 +101,8 @@ export function CreateRoomPage({
   const [durationSlots, setDurationSlots] = useState<number>(4);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [mutationId] = useState(() => `create_${Math.random().toString(36).slice(2, 10)}`);
+  const pending = useRef<PendingMutation | null>(readPending('create'));
+  const submitting = useRef(false);
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const titleId = useId();
@@ -134,7 +136,7 @@ export function CreateRoomPage({
   };
 
   const submitCreate = async () => {
-    if (isSubmitting) return;
+    if (submitting.current) return;
     const cleanTitle = title.trim();
     if (!cleanTitle) {
       setErrorMsg('先给这次约局起个名字吧，比如「双人成行」或「吃火锅」～');
@@ -152,22 +154,25 @@ export function CreateRoomPage({
       return;
     }
 
+    const spec = { title: cleanTitle, gameTag, nights, targetPlayers, durationSlots };
+    submitting.current = true;
     setIsSubmitting(true);
     setErrorMsg(null);
     try {
-      const created = await repository.createRoom(
-        {
-          title: cleanTitle,
-          gameTag,
-          nights,
-          targetPlayers,
-          durationSlots,
-        },
-        mutationId,
-      );
+      pending.current = pendingMutation(pending.current, spec);
+      writePending('create', pending.current);
+      const created = await repository.createRoom(spec, pending.current.key);
+      pending.current = null;
+      writePending('create', null);
       onCreated(created.id);
     } catch (err) {
+      if (err instanceof RepositoryError && !(err instanceof NetworkError) && err.code !== 'SESSION_REQUIRED') {
+        pending.current = null;
+        writePending('create', null);
+      }
       setErrorMsg((err as Error).message || '创建失败，请稍后重试。');
+    } finally {
+      submitting.current = false;
       setIsSubmitting(false);
     }
   };
