@@ -52,6 +52,7 @@ export class NetworkError extends RepositoryError {
 export type SubscribeHandlers = Readonly<{
   onSnapshot: (snapshot: RoomSnapshot) => void;
   onConnection: (state: ConnectionState) => void;
+  onNotFound?: () => void;
 }>;
 
 export interface RoomRepository {
