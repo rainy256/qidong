@@ -75,7 +75,7 @@ export function loadConfig(overrides: Partial<ServerConfig> = {}): ServerConfig 
     tokenPepper:
       overrides.tokenPepper ?? (envPepper || 'dev-local-pepper-change-in-production'),
     allowedOrigins: overrides.allowedOrigins ?? parseAllowedOrigins(process.env.ALLOWED_ORIGINS),
-    cookieSecure: overrides.cookieSecure ?? parseCookieSecure(process.env.COOKIE_SECURE),
+    cookieSecure: isProd ? 'true' : (overrides.cookieSecure ?? parseCookieSecure(process.env.COOKIE_SECURE)),
     trustProxy: overrides.trustProxy ?? parseTrustProxy(process.env.TRUST_PROXY),
     roomTtlDays: overrides.roomTtlDays ?? parseIntEnv(process.env.ROOM_TTL_DAYS, 30, 1, 365),
     sseHeartbeatMs:
