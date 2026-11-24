@@ -1,0 +1,82 @@
+import { useCallback, useEffect, useState } from 'react';
+import { mockRoomClient, type DemoControlState } from './api/mockClient';
+import { DemoToolbar } from './components/DemoToolbar';
+import type { RoomSnapshot } from './domain/types';
+import { CreateRoomPage } from './pages/CreateRoomPage';
+import { RoomPage } from './pages/RoomPage';
+
+type RouteState = Readonly<{
+  pathname: string;
+  search: string;
+}>;
+
+function readLocation(): RouteState {
+  if (typeof window === 'undefined') {
+    return { pathname: '/r/demo-almost', search: '' };
+  }
+  return {
+    pathname: window.location.pathname,
+    search: window.location.search,
+  };
+}
+
+export function App() {
+  const [route, setRoute] = useState<RouteState>(readLocation);
+  const [controls, setControls] = useState<DemoControlState>(() =>
+    mockRoomClient.getControlState(),
+  );
+  const [activeSnapshot, setActiveSnapshot] = useState<RoomSnapshot | null>(null);
+
+  useEffect(() => {
+    return mockRoomClient.subscribeControls(() => {
+      setControls(mockRoomClient.getControlState());
+    });
+  }, []);
+
+  useEffect(() => {
+    const onPopState = () => setRoute(readLocation());
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, []);
+
+  const navigate = useCallback((to: string) => {
+    const targetUrl = new URL(to, window.location.origin);
+    window.history.pushState({}, '', `${targetUrl.pathname}${targetUrl.search}`);
+    setRoute({ pathname: targetUrl.pathname, search: targetUrl.search });
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
+
+  const roomMatch = /^\/r\/([^/]+)\/?$/.exec(route.pathname);
+  const roomId = roomMatch ? decodeURIComponent(roomMatch[1]) : null;
+  const justCreated = new URLSearchParams(route.search).get('created') === '1';
+
+  return (
+    <>
+      {roomId ? (
+        <RoomPage
+          roomId={roomId}
+          justCreated={justCreated}
+          repository={mockRoomClient}
+          denyClipboard={controls.denyClipboard}
+          onNavigate={navigate}
+          onRoomLoaded={setActiveSnapshot}
+        />
+      ) : (
+        <CreateRoomPage
+          repository={mockRoomClient}
+          onCreated={(newId) => navigate(`/r/${encodeURIComponent(newId)}?created=1`)}
+          onNavigate={navigate}
+        />
+      )}
+
+      <DemoToolbar
+        currentPath={route.pathname}
+        activeRoomId={roomId}
+        currentDurationSlots={activeSnapshot?.durationSlots}
+        onNavigate={navigate}
+      />
+    </>
+  );
+}
+
+export default App;

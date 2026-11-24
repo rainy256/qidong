@@ -1,0 +1,44 @@
+.heroWrap {
+  width: 112px;
+  aspect-ratio: 240 / 352;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 2px solid #ffffff;
+  background-color: #ffffff;
+  box-shadow: 0 4px 12px rgb(135 102 68 / 0.14);
+}
+
+.heroImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+}
+
+.stickerWrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  padding: 4px;
+  border-radius: 20px;
+  background-color: #ffffff;
+  border: 1.5px solid var(--border-hairline);
+  box-shadow: 0 3px 0 rgb(135 102 68 / 0.12);
+}
+
+.stickerImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.fallbackBadge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: var(--brand-soft-ink);
+}

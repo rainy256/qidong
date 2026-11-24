@@ -1,0 +1,108 @@
+.dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+
+.dotSm {
+  width: 24px;
+  height: 24px;
+  font-size: 0.75rem;
+}
+
+.dotMd {
+  width: 30px;
+  height: 30px;
+  font-size: 0.875rem;
+}
+
+.dotMe {
+  box-shadow: 0 0 0 2px var(--peach-soft-bg);
+}
+
+.seatRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4375rem;
+}
+
+.playerChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.1875rem 0.5625rem 0.1875rem 0.25rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-hairline);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  color: var(--ink-primary);
+}
+
+.playerChipMe {
+  background-color: var(--peach-soft-bg);
+  border-color: var(--peach-soft-border);
+}
+
+.playerName {
+  line-height: 1.2;
+}
+
+.meBadge {
+  font-size: 0.6875rem;
+  font-weight: 750;
+  padding: 0.0625rem 0.3125rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--peach-solid);
+  color: #ffffff;
+}
+
+.emptySeat,
+.emptySeatBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3125rem;
+  padding: 0.1875rem 0.625rem 0.1875rem 0.25rem;
+  border-radius: var(--radius-pill);
+  background-color: var(--amber-bg);
+  border: 1.5px dashed var(--amber-border);
+  color: var(--amber-ink);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  min-block-size: 30px;
+}
+
+.emptySeatBtn {
+  transition: transform 0.2s var(--spring-fallback);
+}
+
+.emptySeatBtn:hover {
+  transform: translateY(-1px);
+}
+
+.emptyCircle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--bg-surface);
+  border: 1.5px dashed var(--amber-border);
+  font-size: 0.8125rem;
+  font-weight: 800;
+}
+
+.moreEmpty {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  padding-inline: 0.25rem;
+}

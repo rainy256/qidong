@@ -1,0 +1,210 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4375rem;
+  padding: 0.75rem 0.875rem;
+  border-radius: 18px;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border-hairline);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.label {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.inspectBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0.6875rem;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--ink-secondary);
+  font-size: 0.75rem;
+  font-weight: 650;
+  min-block-size: var(--target-size);
+}
+
+.inspectBtn:hover {
+  background-color: var(--bg-subtle);
+  color: var(--ink-primary);
+}
+
+.chevron,
+.chevronOpen {
+  transition: transform 0.16s ease;
+}
+
+.chevronOpen {
+  transform: rotate(180deg);
+}
+
+.waveTrack {
+  display: grid;
+  gap: 3px;
+  height: 30px;
+  padding: 3px 4px;
+  border-radius: 12px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+  align-items: end;
+}
+
+.waveSlot {
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+  position: relative;
+}
+
+.waveBar {
+  width: 100%;
+  border-radius: 999px;
+  transition: height 0.22s ease, background-color 0.18s ease;
+}
+
+.level0 {
+  background-color: var(--density-0);
+}
+
+.level1 {
+  background-color: var(--density-1);
+}
+
+.level2 {
+  background-color: var(--density-2);
+}
+
+.level3 {
+  background-color: var(--density-3);
+}
+
+.level4 {
+  background-color: var(--density-4);
+}
+
+.midnightDivider::before {
+  content: '';
+  position: absolute;
+  inset-block: -2px;
+  inset-inline-start: -2.5px;
+  width: 2px;
+  border-radius: 2px;
+  background-color: var(--peach-solid);
+  opacity: 0.6;
+}
+
+.draftRow {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.draftCaption {
+  font-size: 0.75rem;
+  font-weight: 650;
+  color: var(--peach-soft-ink);
+}
+
+.draftTrack {
+  display: grid;
+  gap: 3px;
+  height: 11px;
+  padding-inline: 4px;
+  border-radius: 999px;
+  background-color: var(--draft-track-bg);
+  align-items: center;
+}
+
+.draftSegment {
+  height: 8px;
+  border-radius: 999px;
+  background-color: var(--draft-bar);
+  box-shadow: 0 1px 0 var(--peach-lip);
+}
+
+.axis {
+  position: relative;
+  height: 1.125rem;
+  margin-top: 0.0625rem;
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+}
+
+.tick {
+  position: absolute;
+  top: 0;
+  white-space: nowrap;
+}
+
+.tick_start {
+  transform: translateX(0);
+}
+
+.tick_center {
+  transform: translateX(-50%);
+}
+
+.tick_end {
+  transform: translateX(-100%);
+}
+
+.hoverReadout {
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+  padding: 0.1875rem 0;
+}
+
+.breakdown {
+  margin-top: 0.25rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: 14px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-hairline);
+}
+
+.breakdownEmpty {
+  font-size: 0.8125rem;
+  color: var(--ink-secondary);
+}
+
+.breakdownList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.breakdownRow {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8125rem;
+}
+
+.breakdownTime {
+  font-weight: 700;
+  color: var(--ink-primary);
+}
+
+.breakdownCount {
+  color: var(--brand-soft-ink);
+  font-weight: 700;
+}
+
+.breakdownNames {
+  color: var(--ink-secondary);
+}

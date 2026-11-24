@@ -1,0 +1,13 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: 18px;
+  border: 2px solid;
+  box-shadow: 0 3px 0 rgb(110 96 88 / 0.1);
+}
+
+.bob {
+  animation: floatBob 3.2s ease-in-out infinite;
+}
