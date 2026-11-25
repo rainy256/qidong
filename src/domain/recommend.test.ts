@@ -4,8 +4,11 @@ import {
   computeDraftFeedback,
   computeOthersSlotAvailability,
   computeOverlapSpans,
+  formatCandidateBadge,
+  formatCandidateProgress,
   formatGroupNotice,
   getHeatLevel,
+  getRoomCompletionState,
   mergeSpans,
   recommend,
 } from './recommend';
@@ -578,6 +581,109 @@ describe('recommendation engine & time domain', () => {
     expect(noOverlapNotice).toContain('已有 2 人填完（1 人有空，1 人本次不行）');
     expect(noOverlapNotice).toContain('暂未凑出满 2 小时 的连续重合时段');
     expect(noOverlapNotice).toContain(inviteUrl);
+  });
+
+
+  it('distinguishes closed-but-incomplete rooms and describes over-target groups clearly', () => {
+    const t20 = shanghaiToSlot('2026-11-27', 20, 0);
+    const t21 = shanghaiToSlot('2026-11-27', 21, 0);
+    const t22 = shanghaiToSlot('2026-11-27', 22, 0);
+    const closedAt = '2026-11-27T11:30:00Z';
+    const inviteUrl = 'https://game.example.com/r/r-test123';
+    const baseRoom: RoomSnapshot = {
+      id: 'r-test123',
+      title: '周五晚 Apex 三排',
+      gameTag: 'apex',
+      tzid: 'Asia/Shanghai',
+      nights: [fri, sat],
+      targetPlayers: 3,
+      durationSlots: 4,
+      roomRevision: 3,
+      closedAt: null,
+      submissions: [],
+      viewer: { memberId: null, canClose: false, mineRevision: 0 },
+      syncedAt: '2026-11-27T11:00:00Z',
+    };
+    const available = (memberId: string, from = t20, to = t22): Submission => ({
+      memberId,
+      nickname: memberId,
+      answer: { kind: 'available', picks: [{ nightId: 'fri', from, to }] },
+      updatedAt: '2026-11-27T10:00:00Z',
+    });
+    const getPrimary = (submissions: Submission[]) =>
+      recommend({
+        nights: baseRoom.nights,
+        targetPlayers: baseRoom.targetPlayers,
+        durationSlots: baseRoom.durationSlots,
+        earliestStart: baseRoom.nights[0].from,
+        submissions,
+      })[0] ?? null;
+
+    const almostSubmissions = [available('u1'), available('u2')];
+    const closedAlmost = { ...baseRoom, closedAt, submissions: almostSubmissions };
+    const almostCandidate = getPrimary(almostSubmissions);
+    expect(almostCandidate?.missingPlayers).toBe(1);
+    expect(getRoomCompletionState(closedAt, almostCandidate)).toBe('closed-incomplete');
+    const almostMeta = buildRoomShareMeta(closedAlmost, 'https://game.example.com');
+    expect(almostMeta.title).toContain('收集已结束·未凑齐');
+    expect(almostMeta.title).toContain('还差 1 人');
+    expect(almostMeta.title).not.toContain('已定场');
+    expect(almostMeta.description).toContain('未达到发车人数要求');
+    const almostNotice = formatGroupNotice(closedAlmost, almostCandidate, inviteUrl, false);
+    expect(almostNotice).toContain('收集已结束（未凑齐）');
+    expect(almostNotice).toContain('还差 1 人发车');
+    expect(almostNotice).not.toContain('已定场');
+
+    const readySubmissions = [available('u1'), available('u2'), available('u3')];
+    const closedReady = { ...baseRoom, closedAt, submissions: readySubmissions };
+    const readyCandidate = getPrimary(readySubmissions);
+    expect(getRoomCompletionState(closedAt, readyCandidate)).toBe('settled');
+    const readyMeta = buildRoomShareMeta(closedReady, 'https://game.example.com');
+    expect(readyMeta.title).toContain('【已定场】');
+    expect(readyMeta.description).toContain('3 人已定场');
+    const readyNotice = formatGroupNotice(closedReady, readyCandidate, inviteUrl, false);
+    expect(readyNotice).toContain('已定场');
+    expect(readyNotice).toContain('已锁定本场');
+
+    const noOverlapSubmissions = [
+      available('u1', t20, t21),
+      {
+        memberId: 'u2',
+        nickname: 'u2',
+        answer: { kind: 'unavailable' as const },
+        updatedAt: '2026-11-27T10:01:00Z',
+      },
+    ];
+    const closedNoOverlap = { ...baseRoom, closedAt, submissions: noOverlapSubmissions };
+    const noOverlapCandidate = getPrimary(noOverlapSubmissions);
+    expect(noOverlapCandidate).toBeNull();
+    expect(getRoomCompletionState(closedAt, noOverlapCandidate)).toBe('closed-incomplete');
+    const noOverlapMeta = buildRoomShareMeta(closedNoOverlap, 'https://game.example.com');
+    expect(noOverlapMeta.title).toContain('收集已结束·未凑齐');
+    expect(noOverlapMeta.title).not.toContain('已定场');
+    expect(noOverlapMeta.description).toContain('未凑出满足人数和时长要求');
+    const noOverlapNotice = formatGroupNotice(closedNoOverlap, null, inviteUrl, false);
+    expect(noOverlapNotice).toContain('收集已结束（未凑齐）');
+    expect(noOverlapNotice).not.toContain('已定场');
+
+    const overTargetSubmissions = [
+      available('u1'),
+      available('u2'),
+      available('u3'),
+      available('u4'),
+    ];
+    const overTargetCandidate = getPrimary(overTargetSubmissions);
+    expect(overTargetCandidate?.missingPlayers).toBe(0);
+    expect(formatCandidateProgress(overTargetCandidate!, 3)).toBe('已有 4 人有空，已满足 3 人发车条件');
+    expect(formatCandidateBadge(overTargetCandidate!, 3)).toBe('4 人有空 · 3 人可开');
+    const overTargetRoom = { ...baseRoom, submissions: overTargetSubmissions };
+    const overTargetMeta = buildRoomShareMeta(overTargetRoom, 'https://game.example.com');
+    expect(overTargetMeta.title).toContain('已有 4 人有空，已满足 3 人发车条件');
+    expect(overTargetMeta.title).not.toContain('4/3');
+    expect(overTargetMeta.description).toContain('已满足 3 人发车条件');
+    const overTargetNotice = formatGroupNotice(overTargetRoom, overTargetCandidate!, inviteUrl, false);
+    expect(overTargetNotice).toContain('已有 4 人有空，已满足 3 人发车条件');
+    expect(overTargetNotice).not.toContain('4/3');
   });
 
   it('normalizes heat levels dynamically to each night peak count', () => {
