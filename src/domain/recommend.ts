@@ -715,3 +715,22 @@ export function formatGroupNotice(
     inviteUrl,
   ].join('\n');
 }
+
+export function formatMemberAvailabilityLines(
+  sub: Submission,
+  nights: readonly Night[],
+): string {
+  if (sub.answer.kind === 'unavailable') return '这次都不行';
+  const parts: string[] = [];
+  for (const night of nights) {
+    const spans = mergeSpans(
+      sub.answer.picks
+        .filter((p) => p.nightId === night.id)
+        .map((p) => ({ from: Math.max(night.from, p.from), to: Math.min(night.to, p.to) })),
+    );
+    if (spans.length === 0) continue;
+    const label = spans.map((s) => formatSpanInNight(night, s)).join('、');
+    parts.push(`${formatNightWeekday(night.dateKey)} ${label}`);
+  }
+  return parts.length > 0 ? parts.join('；') : '未填写时段';
+}
