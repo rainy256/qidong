@@ -171,8 +171,10 @@ function injectRoomMeta(html: string, meta: RoomShareMeta): string {
   const tags = [
     `<title>${t}</title>`,
     `<meta name="description" content="${d}" />`,
+    `<meta name="Description" content="${d}" />`,
     `<meta itemprop="name" content="${t}" />`,
     `<meta itemprop="description" content="${d}" />`,
+    `<meta itemprop="Description" content="${d}" />`,
     `<meta itemprop="image" content="${img}" />`,
     `<meta property="og:type" content="website" />`,
     `<meta property="og:site_name" content="约局车票" />`,
@@ -185,8 +187,13 @@ function injectRoomMeta(html: string, meta: RoomShareMeta): string {
     `<meta name="twitter:description" content="${d}" />`,
     `<meta name="twitter:image" content="${img}" />`,
   ].join('\n    ');
-  if (/<\/head>/i.test(cleaned)) {
-    return cleaned.replace(/<\/head>/i, `    ${tags}\n  </head>`);
+  const charsetMeta = /<meta\\b[^>]*\\bcharset\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s/>]+)[^>]*>/i;
+  if (charsetMeta.test(cleaned)) {
+    return cleaned.replace(charsetMeta, match => `${match}\n    ${tags}`);
+  }
+  const headOpen = /<head\\b[^>]*>/i;
+  if (headOpen.test(cleaned)) {
+    return cleaned.replace(headOpen, match => `${match}\n    ${tags}`);
   }
   return `${tags}\n${cleaned}`;
 }
