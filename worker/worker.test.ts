@@ -162,8 +162,10 @@ describe('Cloudflare Worker with actual SQLite schema',()=>{
     expect(html).toContain(`<meta name="Description" content="${shareDescription}" />`);
     expect(html).toContain(`<meta itemprop="description" content="${shareDescription}" />`);
     expect(html).toContain(`<meta itemprop="Description" content="${shareDescription}" />`);
-    expect(html.match(/<meta name="description"/gi)).toHaveLength(1);
-    expect(html.match(/<meta itemprop="description"/gi)).toHaveLength(1);
+    expect(html.match(/<meta name="description"/g)).toHaveLength(1);
+    expect(html.match(/<meta name="Description"/g)).toHaveLength(1);
+    expect(html.match(/<meta itemprop="description"/g)).toHaveLength(1);
+    expect(html.match(/<meta itemprop="Description"/g)).toHaveLength(1);
     expect(html).not.toContain('content="stale"');
     expect(html.indexOf('charset="UTF-8"')).toBeLessThan(html.indexOf('<meta name="Description"'));
     expect(html.indexOf('<meta name="Description"')).toBeLessThan(html.indexOf('</head>'));
