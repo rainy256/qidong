@@ -89,13 +89,9 @@ export function RecommendationCard({
   const isAlmostOne = primary?.missingPlayers === 1;
 
   const badgeText = isEmpty
-    ? isClosed
-      ? '收集已结束'
-      : '车票已出'
+    ? '车票已出'
     : !primary
-      ? isClosed
-        ? '收集已结束 · 未凑齐'
-        : '暂未重合'
+      ? '暂未重合'
       : formatCandidateBadge(primary, snapshot.targetPlayers);
 
   const cardMoodClass = isReady
@@ -181,8 +177,14 @@ export function RecommendationCard({
             <div className={styles.emptyBody}>
               <HeroSquadIllustration />
               <div className={styles.emptyCopy}>
-                <p className={styles.emptyPrimary}>车票刚印好，等你第一个上车选时间～</p>
-                <p className={styles.emptyHint}>下面点一下「整晚有空」或自选时段就能立马开局。</p>
+                <p className={styles.emptyPrimary}>
+                  {isClosed ? '本次收集已结束，暂无可用时间记录。' : '车票刚印好，等你第一个上车选时间～'}
+                </p>
+                <p className={styles.emptyHint}>
+                  {isClosed
+                    ? '这张车票已关闭，当前没有可推荐的发车时段。'
+                    : '下面点一下「整晚有空」或自选时段就能立马开局。'}
+                </p>
               </div>
             </div>
             <div className={styles.actions}>
@@ -197,10 +199,15 @@ export function RecommendationCard({
         ) : !primary ? (
           <div className={styles.noOverlapBody}>
             <h2 className={styles.subHero}>
-              已有 <span className="tabular">{snapshot.submissions.length}</span> 人交卷，暂未凑出{' '}
+              已有 <span className="tabular">{snapshot.submissions.length}</span> 人交卷，
+              {isClosed ? '收集结束时仍未凑出' : '暂未凑出'}{' '}
               <span className="tabular">{formatDuration(snapshot.durationSlots)}</span> 重合时段
             </h2>
-            <p className={styles.reasonLine}>再等等其他群友，或放宽单次游玩时长试试～</p>
+            <p className={styles.reasonLine}>
+              {isClosed
+                ? '本次收集已结束，未能凑齐满足人数和时长要求的重合时段。'
+                : '再等等其他群友，或放宽单次游玩时长试试～'}
+            </p>
             <div className={styles.actions}>
               <CopyAction
                 text={noticeText}
@@ -214,7 +221,11 @@ export function RecommendationCard({
           <>
             <div className={styles.departureBlock}>
               <span className={styles.departureEyebrow}>
-                {primary.missingPlayers === 0 ? '推荐发车时间' : '目前最接近凑齐'}
+                {primary.missingPlayers === 0
+                  ? '推荐发车时间'
+                  : isClosed
+                    ? '收集结束时的最佳重合'
+                    : '目前最接近凑齐'}
               </span>
               {primary.missingPlayers >= 2 ? (
                 <h2 className={`${styles.subHero} tabular`}>
