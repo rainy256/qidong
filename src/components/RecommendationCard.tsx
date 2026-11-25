@@ -6,8 +6,10 @@ import {
   StarGlintIcon,
 } from './AppIcons';
 import {
+  formatCandidateBadge,
   formatGroupNotice,
   formatMemberListZh,
+  getRoomCompletionState,
   pickDisplayCandidates,
   recommend,
 } from '../domain/recommend';
@@ -72,6 +74,13 @@ export function RecommendationCard({
 
   const { primary, alternatives } = pickDisplayCandidates(candidates);
   const isClosed = snapshot.closedAt !== null;
+  const completionState = getRoomCompletionState(snapshot.closedAt, primary);
+  const closureLabel =
+    completionState === 'settled'
+      ? '已定场'
+      : completionState === 'closed-incomplete'
+        ? '收集结束 · 未凑齐'
+        : null;
   const gameTag = inferGameTag(snapshot.title, snapshot.gameTag);
   const ruleLine = `${formatNightRangeHeader(snapshot.nights)} · ${snapshot.targetPlayers} 人发车 · 至少 ${formatDuration(snapshot.durationSlots)}`;
 
@@ -80,14 +89,14 @@ export function RecommendationCard({
   const isAlmostOne = primary?.missingPlayers === 1;
 
   const badgeText = isEmpty
-    ? '车票已出'
+    ? isClosed
+      ? '收集已结束'
+      : '车票已出'
     : !primary
-      ? '暂未重合'
-      : isReady
-        ? primary.memberIds.length === snapshot.targetPlayers
-          ? `${snapshot.targetPlayers} 人可开`
-          : `${primary.memberIds.length} 人有空 · ${snapshot.targetPlayers} 人可开`
-        : `还差 ${primary.missingPlayers} 人`;
+      ? isClosed
+        ? '收集已结束 · 未凑齐'
+        : '暂未重合'
+      : formatCandidateBadge(primary, snapshot.targetPlayers);
 
   const cardMoodClass = isReady
     ? styles.ticketReady
@@ -141,10 +150,14 @@ export function RecommendationCard({
               <span className="tabular">{badgeText}</span>
             </span>
 
-            {isClosed && (
+            {closureLabel && (
               <span className={styles.closedTag}>
-                <CrownBadgeIcon size={13} tone="rose" />
-                <span>已定场</span>
+                {completionState === 'settled' ? (
+                  <CrownBadgeIcon size={13} tone="rose" />
+                ) : (
+                  <StarGlintIcon size={13} tone="honey" />
+                )}
+                <span>{closureLabel}</span>
               </span>
             )}
           </div>
