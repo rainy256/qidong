@@ -40,6 +40,8 @@ function harness() {
     <meta charset="UTF-8" />
     <title>约局 · 找个大家都能开的时间</title>
     <meta name="description" content="static" />
+    <meta name="Description" content="stale" />
+    <meta itemprop="Description" content="stale" />
     <meta property="og:title" content="static" />
     <meta property="og:image" content="/art/hero-runner.png" />
   </head>
@@ -153,6 +155,15 @@ describe('Cloudflare Worker with actual SQLite schema',()=>{
     expect(html).toContain(`content="${customOrigin}/art/game-apex.png"`);
     expect(html).toContain(`<meta property="og:url" content="${customOrigin}/r/${room.id}" />`);
     expect(html).toContain('<meta itemprop="name" content="【开黑】已有 2/3 人重合 · 还差 1 人" />');
+    expect(html).toContain('<meta name="description" content="周三 19:00–次日 00:00 可连玩满 2 小时（阿哲和小满）" />');
+    expect(html).toContain('<meta name="Description" content="周三 19:00–次日 00:00 可连玩满 2 小时（阿哲和小满）" />');
+    expect(html).toContain('<meta itemprop="description" content="周三 19:00–次日 00:00 可连玩满 2 小时（阿哲和小满）" />');
+    expect(html).toContain('<meta itemprop="Description" content="周三 19:00–次日 00:00 可连玩满 2 小时（阿哲和小满）" />');
+    expect(html.match(/<meta name="Description"/gi)).toHaveLength(1);
+    expect(html.match(/<meta itemprop="Description"/gi)).toHaveLength(1);
+    expect(html).not.toContain('content="stale"');
+    expect(html.indexOf('charset="UTF-8"')).toBeLessThan(html.indexOf('<meta name="Description"'));
+    expect(html.indexOf('<meta name="Description"')).toBeLessThan(html.indexOf('</head>'));
     expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
     expect((h.sqlite.prepare('SELECT COUNT(*) AS c FROM participants').get() as {c:number}).c).toBe(2);
 
