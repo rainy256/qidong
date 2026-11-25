@@ -190,7 +190,7 @@ export function RecommendationCard({
             <div className={styles.actions}>
               <CopyAction
                 text={noticeText}
-                label="复制邀请战报"
+                label={isClosed ? '复制收集结果' : '复制邀请战报'}
                 variant="secondary"
                 denyClipboard={denyClipboard}
               />
@@ -229,7 +229,8 @@ export function RecommendationCard({
               </span>
               {primary.missingPlayers >= 2 ? (
                 <h2 className={`${styles.subHero} tabular`}>
-                  目前最多 {names.length} 人能一起玩满 {formatDuration(snapshot.durationSlots)}
+                  {isClosed ? '收集结束时最多' : '目前最多'} {names.length} 人能一起玩满{' '}
+                  {formatDuration(snapshot.durationSlots)}
                 </h2>
               ) : (
                 <h2 className={`${styles.heroTime} tabular`}>
