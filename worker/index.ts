@@ -187,11 +187,11 @@ function injectRoomMeta(html: string, meta: RoomShareMeta): string {
     `<meta name="twitter:description" content="${d}" />`,
     `<meta name="twitter:image" content="${img}" />`,
   ].join('\n    ');
-  const charsetMeta = /<meta\\b[^>]*\\bcharset\\s*=\\s*(?:"[^"]*"|'[^']*'|[^\\s/>]+)[^>]*>/i;
+  const charsetMeta = /<meta\b[^>]*\bcharset\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)[^>]*>/i;
   if (charsetMeta.test(cleaned)) {
     return cleaned.replace(charsetMeta, match => `${match}\n    ${tags}`);
   }
-  const headOpen = /<head\\b[^>]*>/i;
+  const headOpen = /<head\b[^>]*>/i;
   if (headOpen.test(cleaned)) {
     return cleaned.replace(headOpen, match => `${match}\n    ${tags}`);
   }
