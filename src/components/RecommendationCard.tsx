@@ -1,4 +1,10 @@
-import { ChevronDown, Crown, PartyPopper, Sparkles, Users } from 'lucide-react';
+import {
+  ChevronSoftIcon,
+  CrownBadgeIcon,
+  PartyStarIcon,
+  SquadUsersIcon,
+  StarGlintIcon,
+} from './AppIcons';
 import {
   formatGroupNotice,
   formatMemberListZh,
@@ -106,7 +112,7 @@ export function RecommendationCard({
     primary && night ? formatSlotInNight(primary.lastStart, night.dateKey) : '';
   const endLabel =
     primary && night ? formatSlotInNight(primary.availableUntil, night.dateKey) : '';
-  const noticeText = formatGroupNotice(snapshot, primary, inviteUrl, isOffline);
+  const noticeText = formatGroupNotice(snapshot, primary, inviteUrl, isOffline, alternatives);
 
   return (
     <section className={`${styles.ticket} ${cardMoodClass}`} aria-label="发车推荐票面">
@@ -126,18 +132,18 @@ export function RecommendationCard({
               }
             >
               {isReady ? (
-                <PartyPopper size={13} strokeWidth={2.2} aria-hidden="true" />
+                <PartyStarIcon size={14} tone="auto" />
               ) : isAlmostOne ? (
-                <Sparkles size={13} strokeWidth={2.2} aria-hidden="true" />
+                <StarGlintIcon size={14} tone="honey" />
               ) : (
-                <Users size={13} strokeWidth={2} aria-hidden="true" />
+                <SquadUsersIcon size={14} tone="violet" />
               )}
               <span className="tabular">{badgeText}</span>
             </span>
 
             {isClosed && (
               <span className={styles.closedTag}>
-                <Crown size={12} aria-hidden="true" />
+                <CrownBadgeIcon size={13} tone="rose" />
                 <span>已定场</span>
               </span>
             )}
@@ -158,13 +164,23 @@ export function RecommendationCard({
       {/* Lower Ticket Section: Departure Time + Visual Boarding Seats */}
       <div className={styles.ticketBottom}>
         {isEmpty ? (
-          <div className={styles.emptyBody}>
-            <HeroSquadIllustration />
-            <div className={styles.emptyCopy}>
-              <p className={styles.emptyPrimary}>车票刚印好，等你第一个上车选时间～</p>
-              <p className={styles.emptyHint}>下面点一下「整晚有空」或自选时段就能立马开局。</p>
+          <>
+            <div className={styles.emptyBody}>
+              <HeroSquadIllustration />
+              <div className={styles.emptyCopy}>
+                <p className={styles.emptyPrimary}>车票刚印好，等你第一个上车选时间～</p>
+                <p className={styles.emptyHint}>下面点一下「整晚有空」或自选时段就能立马开局。</p>
+              </div>
             </div>
-          </div>
+            <div className={styles.actions}>
+              <CopyAction
+                text={noticeText}
+                label="复制邀请战报"
+                variant="secondary"
+                denyClipboard={denyClipboard}
+              />
+            </div>
+          </>
         ) : !primary ? (
           <div className={styles.noOverlapBody}>
             <h2 className={styles.subHero}>
@@ -175,7 +191,7 @@ export function RecommendationCard({
             <div className={styles.actions}>
               <CopyAction
                 text={noticeText}
-                label="复制催填链接"
+                label="复制群聊战报"
                 variant={isClosed ? 'primary' : 'secondary'}
                 denyClipboard={denyClipboard}
               />
@@ -221,7 +237,7 @@ export function RecommendationCard({
             <div className={styles.actions}>
               <CopyAction
                 text={noticeText}
-                label="复制群通知"
+                label="复制群聊战报"
                 variant={isClosed ? 'primary' : 'secondary'}
                 denyClipboard={denyClipboard}
               />
@@ -231,7 +247,7 @@ export function RecommendationCard({
               <details className={styles.altDetails}>
                 <summary className={styles.altSummary}>
                   <span>其他备选时段（{alternatives.length}）</span>
-                  <ChevronDown size={15} className={styles.altChevron} aria-hidden="true" />
+                  <ChevronSoftIcon size={15} className={styles.altChevron} />
                 </summary>
                 <ul className={styles.altList}>
                   {alternatives.map((alt) => (

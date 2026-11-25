@@ -1,5 +1,6 @@
 import {
   formatDuration,
+  formatNightRangeHeader,
   formatNightWeekday,
   formatSlotInNight,
   formatSpanInNight,
@@ -7,6 +8,7 @@ import {
 } from './time';
 import type {
   Candidate,
+  GameTag,
   Night,
   Pick,
   RecommendInput,
@@ -15,6 +17,15 @@ import type {
   Span,
   Submission,
 } from './types';
+
+export function inferGameTag(title: string, explicit?: GameTag): GameTag {
+  if (explicit) return explicit;
+  const lower = title.toLowerCase();
+  if (lower.includes('apex')) return 'apex';
+  if (lower.includes('gta')) return 'gta';
+  if (title.includes('塔科夫') || title.includes('塔可夫') || lower.includes('tarkov')) return 'tarkov';
+  return 'custom';
+}
 
 /**
  * Sort and merge overlapping or immediately adjacent [from, to) intervals.
@@ -326,6 +337,37 @@ export function mergeDensityRuns(cells: readonly SlotDensityCell[]): MergedDensi
   return runs;
 }
 
+export function computeOverlapSpans(
+  cells: readonly SlotDensityCell[],
+  minCount = 2,
+): Span[] {
+  const spans: Span[] = [];
+  for (const cell of cells) {
+    if (cell.count < minCount) continue;
+    const prev = spans[spans.length - 1];
+    if (prev && prev.to === cell.slot) {
+      spans[spans.length - 1] = { from: prev.from, to: cell.slot + 1 };
+    } else {
+      spans.push({ from: cell.slot, to: cell.slot + 1 });
+    }
+  }
+  return spans;
+}
+
+export function getHeatLevel(
+  count: number,
+  peakCount: number,
+): 0 | 1 | 2 | 3 | 4 | 5 {
+  if (count <= 0) return 0;
+  if (peakCount <= 1) return 1;
+  if (count >= peakCount) return 5;
+  if (count === 1) return 1;
+  const t = (count - 1) / (peakCount - 1);
+  if (t >= 0.66) return 4;
+  if (t >= 0.34) return 3;
+  return 2;
+}
+
 export type DraftFeedback = Readonly<{
   tone: 'ready' | 'almost' | 'info' | 'warning';
   message: string;
@@ -434,38 +476,187 @@ export function formatMemberListZh(names: readonly string[]): string {
   return `${names.slice(0, -1).join('、')}和${names[names.length - 1]}`;
 }
 
+export type RoomShareMeta = Readonly<{
+  title: string;
+  description: string;
+  imageUrl: string;
+  canonicalUrl: string;
+}>;
+
+export function buildRoomShareMeta(
+  snapshot: Readonly<{
+    id: string;
+    title: string;
+    gameTag?: GameTag;
+    nights: readonly Night[];
+    targetPlayers: number;
+    durationSlots: number;
+    closedAt: string | null;
+    submissions: readonly Submission[];
+  }>,
+  origin: string,
+): RoomShareMeta {
+  const earliestStart = snapshot.nights[0]?.from ?? 0;
+  const candidates = recommend({
+    nights: snapshot.nights,
+    targetPlayers: snapshot.targetPlayers,
+    durationSlots: snapshot.durationSlots,
+    earliestStart,
+    submissions: snapshot.submissions,
+  });
+  const primary = candidates[0] ?? null;
+
+  const availableCount = snapshot.submissions.filter((s) => s.answer.kind === 'available').length;
+  const unavailableCount = snapshot.submissions.length - availableCount;
+  const totalSubmitted = snapshot.submissions.length;
+
+  const gameTag = inferGameTag(snapshot.title, snapshot.gameTag);
+  const cleanOrigin = origin.replace(/\/+$/, '');
+  const imageUrl = `${cleanOrigin}/art/game-${gameTag}.png`;
+  const canonicalUrl = `${cleanOrigin}/r/${encodeURIComponent(snapshot.id)}`;
+  const dateRange = formatNightRangeHeader(snapshot.nights);
+  const durationText = formatDuration(snapshot.durationSlots);
+
+  const night = primary ? snapshot.nights.find((n) => n.id === primary.nightId) : undefined;
+  const nameMap = new Map(snapshot.submissions.map((s) => [s.memberId, s.nickname]));
+  const names = primary ? primary.memberIds.map((id) => nameMap.get(id) ?? id) : [];
+  const dayLabel = night ? formatNightWeekday(night.dateKey) : '';
+  const startLabel = primary && night ? formatSlotInNight(primary.firstStart, night.dateKey) : '';
+  const endLabel =
+    primary && night ? formatSlotInNight(primary.availableUntil, night.dateKey) : '';
+
+  let title: string;
+  if (snapshot.closedAt !== null) {
+    title =
+      primary && night
+        ? `【已定场】${snapshot.title} · ${dayLabel} ${startLabel} 开`
+        : `【收集已结束】${snapshot.title}`;
+  } else if (totalSubmitted === 0) {
+    title = `【${snapshot.title}】0/${snapshot.targetPlayers} 人已填 · 点击上车`;
+  } else if (primary && night && primary.missingPlayers === 0) {
+    title = `【${snapshot.title}】已凑齐 ${primary.memberIds.length}/${snapshot.targetPlayers} 人 · ${dayLabel} ${startLabel} 开`;
+  } else if (primary && night) {
+    title = `【${snapshot.title}】已有 ${primary.memberIds.length}/${snapshot.targetPlayers} 人重合 · 还差 ${primary.missingPlayers} 人`;
+  } else {
+    title = `【${snapshot.title}】已有 ${totalSubmitted} 人填完 · 点击来凑时间`;
+  }
+
+  let description: string;
+  if (snapshot.closedAt !== null && primary && night) {
+    description = `${dayLabel} ${startLabel}–${endLabel}，${formatMemberListZh(names)} ${names.length} 人已定场（至少玩 ${durationText}）。`;
+  } else if (snapshot.closedAt !== null) {
+    description = `${dateRange}，本次收集已结束，点击查看最终记录。`;
+  } else if (totalSubmitted === 0) {
+    description = `${dateRange}，${snapshot.targetPlayers} 人发车（至少玩 ${durationText}），免登录点开直接选空余时间。`;
+  } else if (primary && night && primary.missingPlayers === 0) {
+    description = `${dayLabel} ${startLabel}–${endLabel} 可连玩满 ${durationText}（${formatMemberListZh(names)}），点击查看详情或补报时间。`;
+  } else if (primary && night) {
+    description = `最佳重合 ${dayLabel} ${startLabel}–${endLabel}（${formatMemberListZh(names)}），还差 ${primary.missingPlayers} 人凑齐 ${snapshot.targetPlayers} 人发车，点开直接上车！`;
+  } else {
+    const unavailableNote = unavailableCount > 0 ? `、${unavailableCount} 人这次不行` : '';
+    description = `已有 ${availableCount} 人填了时间${unavailableNote}，暂未凑出满 ${durationText} 重合时段，快来填一下你的空余时间。`;
+  }
+
+  return { title, description, imageUrl, canonicalUrl };
+}
+
 export function formatGroupNotice(
   snapshot: RoomSnapshot,
   candidate: Candidate | null,
   inviteUrl: string,
   isOffline: boolean,
+  alternatives: readonly Candidate[] = [],
 ): string {
-  const syncNote = isOffline ? `（按 ${formatSyncClock(snapshot.syncedAt)} 已同步的结果）` : '';
+  const syncNote = isOffline ? `（按 ${formatSyncClock(snapshot.syncedAt)} 已同步）` : '';
+  const availableCount = snapshot.submissions.filter((s) => s.answer.kind === 'available').length;
+  const unavailableNames = snapshot.submissions
+    .filter((s) => s.answer.kind === 'unavailable')
+    .map((s) => s.nickname);
+  const durationText = formatDuration(snapshot.durationSlots);
+  const dateRange = formatNightRangeHeader(snapshot.nights);
+  const closedTag = snapshot.closedAt ? ' · 已定场' : '';
 
-  if (!candidate) {
-    return `来填一下「${snapshot.title}」的空余时间${syncNote}：\n${inviteUrl}`;
+  const altItems: string[] = [];
+  for (const alt of alternatives.slice(0, 2)) {
+    const altNight = snapshot.nights.find((n) => n.id === alt.nightId);
+    if (!altNight) continue;
+    const altDay = formatNightWeekday(altNight.dateKey);
+    const altStart = formatSlotInNight(alt.firstStart, altNight.dateKey);
+    const altEnd = formatSlotInNight(alt.availableUntil, altNight.dateKey);
+    const altStatus =
+      alt.missingPlayers === 0
+        ? `${alt.memberIds.length} 人可开`
+        : `${alt.memberIds.length} 人，差 ${alt.missingPlayers} 人`;
+    altItems.push(`${altDay} ${altStart}–${altEnd}（${altStatus}）`);
+  }
+  const altLine = altItems.length > 0 ? `备选时段：${altItems.join(' / ')}` : null;
+  const unavailableLine =
+    unavailableNames.length > 0 ? `本次不便：${unavailableNames.join('、')}` : null;
+
+  if (snapshot.submissions.length === 0) {
+    return [
+      `【${snapshot.title}】0/${snapshot.targetPlayers} 人已填（${dateRange} · 至少玩 ${durationText}）${syncNote}`,
+      '刚建好车票，免登录点链接选一下你有空的晚上：',
+      inviteUrl,
+    ].join('\n');
   }
 
-  const night = snapshot.nights.find((n) => n.id === candidate.nightId);
-  if (!night) {
-    return `来填一下「${snapshot.title}」的空余时间${syncNote}：\n${inviteUrl}`;
+  const night = candidate ? snapshot.nights.find((n) => n.id === candidate.nightId) : undefined;
+  if (!candidate || !night) {
+    const progressNote = `已有 ${snapshot.submissions.length} 人填完${
+      unavailableNames.length > 0
+        ? `（${availableCount} 人有空，${unavailableNames.length} 人本次不行）`
+        : ''
+    }`;
+    return [
+      `【${snapshot.title}】${progressNote}${closedTag}${syncNote}`,
+      ...(unavailableLine ? [unavailableLine] : []),
+      snapshot.closedAt
+        ? `收集已结束，暂未凑出满 ${durationText} 的连续重合时段，详情见链接：`
+        : `暂未凑出满 ${durationText} 的连续重合时段，还没填的朋友点链接补个位：`,
+      inviteUrl,
+    ].join('\n');
   }
 
   const nameMap = new Map(snapshot.submissions.map((s) => [s.memberId, s.nickname]));
   const names = candidate.memberIds.map((id) => nameMap.get(id) ?? id);
   const dayLabel = formatNightWeekday(night.dateKey);
   const startLabel = formatSlotInNight(candidate.firstStart, night.dateKey);
+  const lastStartLabel = formatSlotInNight(candidate.lastStart, night.dateKey);
   const endLabel = formatSlotInNight(candidate.availableUntil, night.dateKey);
 
   if (candidate.missingPlayers === 0) {
-    return `${dayLabel} ${startLabel}「${snapshot.title}」${syncNote}，${formatMemberListZh(names)} ${names.length} 个都能玩到 ${endLabel}。大家这个点开怎么样？\n${inviteUrl}`;
+    const latestNote =
+      candidate.lastStart > candidate.firstStart ? `，最晚 ${lastStartLabel} 开` : '';
+    return [
+      `【${snapshot.title}】已凑齐 ${candidate.memberIds.length}/${snapshot.targetPlayers} 人${closedTag}${syncNote}`,
+      `推荐发车：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，满 ${durationText}${latestNote}）`,
+      ...(altLine ? [altLine] : []),
+      ...(unavailableLine ? [unavailableLine] : []),
+      snapshot.closedAt ? '已锁定本场，详情见链接：' : '大家这个点开怎么样？详情/改时间：',
+      inviteUrl,
+    ].join('\n');
   }
 
   if (candidate.missingPlayers === 1) {
-    return `${dayLabel} ${startLabel}「${snapshot.title}」还差 1 人${syncNote}（${formatMemberListZh(names)}都能玩到 ${endLabel}），有空的朋友来补个位：\n${inviteUrl}`;
+    return [
+      `【${snapshot.title}】还差 1 人发车（已有 ${candidate.memberIds.length}/${snapshot.targetPlayers} 人重合）${closedTag}${syncNote}`,
+      `最佳重合：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，都能连玩满 ${durationText}）`,
+      ...(altLine ? [altLine] : []),
+      ...(unavailableLine ? [unavailableLine] : []),
+      snapshot.closedAt ? '收集已结束，详情见链接：' : '有空的朋友点链接补个位上车：',
+      inviteUrl,
+    ].join('\n');
   }
 
-  return `「${snapshot.title}」目前 ${dayLabel} ${startLabel}–${endLabel} 有 ${names.length} 人有空${syncNote}，还差 ${candidate.missingPlayers} 人，有空的来填下时间：\n${inviteUrl}`;
+  return [
+    `【${snapshot.title}】目前 ${candidate.memberIds.length}/${snapshot.targetPlayers} 人重合 · 还差 ${candidate.missingPlayers} 人${closedTag}${syncNote}`,
+    `当前最佳：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，满 ${durationText}）`,
+    ...(altLine ? [altLine] : []),
+    ...(unavailableLine ? [unavailableLine] : []),
+    snapshot.closedAt ? '收集已结束，详情见链接：' : '还没填的小伙伴点链接选下时间：',
+    inviteUrl,
+  ].join('\n');
 }
 
 export function formatMemberAvailabilityLines(

@@ -1,12 +1,12 @@
 import styles from './AvatarChip.module.css';
 
 const PASTEL_PALETTE = [
-  { bg: '#FFE2DC', ink: '#A8342A', border: '#FFC0B5' },
-  { bg: '#FFF0B8', ink: '#824E00', border: '#F5D376' },
-  { bg: '#DCF0FF', ink: '#195C91', border: '#AED9FC' },
-  { bg: '#ECE3FF', ink: '#5B3CA8', border: '#CFC0FA' },
-  { bg: '#FCE0EE', ink: '#9E2964', border: '#F6BAD7' },
-  { bg: '#FFE8CE', ink: '#964B0C', border: '#F8C999' },
+  { bg: '#FFE7DC', bgTo: '#FFD2C6', ink: '#9B3A35', border: '#F8BDB0' },
+  { bg: '#FFF3C9', bgTo: '#FFE59E', ink: '#854E08', border: '#F2CC6E' },
+  { bg: '#E3F0FF', bgTo: '#CBE2FF', ink: '#295796', border: '#B2D2FA' },
+  { bg: '#EFE8FF', bgTo: '#DDD2FF', ink: '#573CA3', border: '#C9B9FA' },
+  { bg: '#FFE5F2', bgTo: '#FCCCE5', ink: '#963771', border: '#F2B4D6' },
+  { bg: '#FFEBD4', bgTo: '#FFD8B0', ink: '#8E4B12', border: '#F5C18E' },
 ] as const;
 
 function hashString(str: string): number {
@@ -42,9 +42,9 @@ export function AvatarDot({ name, seed, size = 'md', isMe = false }: AvatarDotPr
         isMe ? styles.dotMe : ''
       }`}
       style={{
-        backgroundColor: tone.bg,
+        backgroundImage: `linear-gradient(145deg, ${tone.bg} 0%, ${tone.bgTo} 100%)`,
         color: tone.ink,
-        borderColor: isMe ? 'var(--peach-solid)' : tone.border,
+        borderColor: isMe ? 'var(--my-track-end)' : tone.border,
       }}
       aria-hidden="true"
     >

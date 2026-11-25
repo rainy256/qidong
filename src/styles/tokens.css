@@ -52,6 +52,24 @@
   --draft-track-bg: #f4ede4;
   --draft-bar: #ff7d6b;
 
+  /* Duotone Icon & Personal Track Tokens (Zero Green) */
+  --icon-violet-stroke: #5b4399;
+  --icon-violet-fill: #e7dfff;
+  --icon-rose-stroke: #9e457c;
+  --icon-rose-fill: #ffddec;
+  --icon-honey-stroke: #965b12;
+  --icon-honey-fill: #ffe8ad;
+  --my-track-start: #ffbe94;
+  --my-track-mid: #f492b5;
+  --my-track-end: #dc78c2;
+  --my-track-lip: #bd5e9e;
+  --my-ink: #964376;
+  --my-soft-bg: #fff0f7;
+  --my-soft-border: #f2c4dc;
+  --glass-surface: rgb(255 252 248 / 0.84);
+  --glass-border: rgb(255 255 255 / 0.92);
+  --glass-ring: rgb(206 192 234 / 0.65);
+
   /* Cozy Sticker Shadows & Squircle Radii */
   --radius-card: 24px;
   --radius-control: 14px;
@@ -147,6 +165,23 @@
     --draft-track-bg: #332c3d;
     --draft-bar: #ff8e7e;
 
+    --icon-violet-stroke: #c7b8ff;
+    --icon-violet-fill: rgb(156 130 250 / 0.3);
+    --icon-rose-stroke: #f7b4dc;
+    --icon-rose-fill: rgb(236 134 192 / 0.3);
+    --icon-honey-stroke: #ffe18f;
+    --icon-honey-fill: rgb(255 210 102 / 0.28);
+    --my-track-start: #f5b48c;
+    --my-track-mid: #ee8eb6;
+    --my-track-end: #d97ac8;
+    --my-track-lip: #974886;
+    --my-ink: #f6b8dd;
+    --my-soft-bg: #3b2436;
+    --my-soft-border: #764468;
+    --glass-surface: rgb(42 35 56 / 0.84);
+    --glass-border: rgb(192 178 232 / 0.36);
+    --glass-ring: rgb(164 146 218 / 0.32);
+
     --card-shadow: 0 5px 0 #15121a, 0 14px 28px rgb(0 0 0 / 0.36);
     --shadow-subtle: 0 3px 0 #15121a, 0 6px 14px rgb(0 0 0 / 0.28);
     --shadow-float: 0 6px 0 #15121a, 0 14px 32px rgb(0 0 0 / 0.5);
@@ -179,6 +214,19 @@
     --amber-ink: CanvasText;
     --amber-border: Highlight;
     --draft-bar: Highlight;
+    --icon-violet-stroke: CanvasText;
+    --icon-violet-fill: Canvas;
+    --icon-rose-stroke: CanvasText;
+    --icon-rose-fill: Canvas;
+    --icon-honey-stroke: CanvasText;
+    --icon-honey-fill: Canvas;
+    --my-track-start: Highlight;
+    --my-track-mid: Highlight;
+    --my-track-end: Highlight;
+    --my-track-lip: ButtonBorder;
+    --my-ink: CanvasText;
+    --my-soft-bg: Canvas;
+    --my-soft-border: Highlight;
     --card-shadow: none;
     --shadow-subtle: none;
   }

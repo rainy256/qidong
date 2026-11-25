@@ -107,8 +107,8 @@
   font-weight: 700;
   padding: 0.0625rem 0.375rem;
   border-radius: var(--radius-pill);
-  background-color: var(--peach-soft-bg);
-  color: var(--peach-soft-ink);
+  background-color: var(--my-soft-bg);
+  color: var(--my-ink);
 }
 
 .times {

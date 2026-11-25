@@ -1,14 +1,24 @@
-import { AlertCircle, ArrowRight, Check, Minus, Plus, Sparkles } from 'lucide-react';
 import { useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { NetworkError, RepositoryError, type RoomRepository } from '../api/repository';
 import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
+import {
+  AlertSoftIcon,
+  ArrowSoftIcon,
+  CheckSoftIcon,
+  MinusPillIcon,
+  PlusPillIcon,
+  StarGlintIcon,
+  TicketSparkIcon,
+} from '../components/AppIcons';
 import { getAvatarTone } from '../components/AvatarChip';
 import { GameStickerArt, HeroSquadIllustration } from '../components/GameArtwork';
 import {
   buildNightWindow,
+  buildPresetRoomTitle,
   buildUpcomingDateOptions,
   formatDuration,
   getTodayShanghaiDateKey,
+  pickDefaultWeekendDates,
 } from '../domain/time';
 import type { GameTag } from '../domain/types';
 import styles from './CreateRoomPage.module.css';
@@ -24,7 +34,6 @@ type GamePreset = Readonly<{
   tag: GameTag;
   label: string;
   hint: string;
-  defaultTitle: string;
   defaultPlayers: number;
 }>;
 
@@ -33,28 +42,24 @@ const GAME_PRESETS: readonly GamePreset[] = [
     tag: 'apex',
     label: 'Apex',
     hint: '3 人小队',
-    defaultTitle: '周五晚 Apex 三排',
     defaultPlayers: 3,
   },
   {
     tag: 'gta',
     label: 'GTA',
     hint: '4 人车队',
-    defaultTitle: '周末 GTA 抢劫分红车',
     defaultPlayers: 4,
   },
   {
     tag: 'tarkov',
     label: '塔科夫',
     hint: '4 人跑图',
-    defaultTitle: '深夜塔科夫跑图车队',
     defaultPlayers: 4,
   },
   {
     tag: 'custom',
     label: '自定义',
     hint: '自由填名',
-    defaultTitle: '',
     defaultPlayers: 4,
   },
 ];
@@ -86,14 +91,13 @@ export function CreateRoomPage({
   const todayKey = useMemo(() => getTodayShanghaiDateKey(), []);
   const dateOptions = useMemo(() => buildUpcomingDateOptions(todayKey, 10), [todayKey]);
 
-  const defaultDates = useMemo(() => {
-    const weekend = dateOptions.filter((d) => d.isWeekend).slice(0, 3);
-    if (weekend.length >= 2) return weekend.map((d) => d.dateKey);
-    return dateOptions.slice(0, 3).map((d) => d.dateKey);
-  }, [dateOptions]);
+  const defaultDates = useMemo(() => pickDefaultWeekendDates(dateOptions), [dateOptions]);
 
   const [gameTag, setGameTag] = useState<GameTag>('apex');
-  const [title, setTitle] = useState<string>('周五晚 Apex 三排');
+  const [titleCustomized, setTitleCustomized] = useState(false);
+  const [title, setTitle] = useState<string>(() =>
+    buildPresetRoomTitle('apex', defaultDates, todayKey, 3),
+  );
   const [selectedDates, setSelectedDates] = useState<string[]>(defaultDates);
   const [startHour, setStartHour] = useState<number>(19);
   const [endHour, setEndHour] = useState<number>(2);
@@ -113,26 +117,40 @@ export function CreateRoomPage({
     setGameTag(preset.tag);
     setErrorMsg(null);
     if (preset.tag === 'custom') {
+      setTitleCustomized(true);
       setTitle('');
       requestAnimationFrame(() => {
         titleInputRef.current?.focus();
       });
     } else {
-      setTitle(preset.defaultTitle);
+      setTitleCustomized(false);
       setTargetPlayers(preset.defaultPlayers);
+      setTitle(buildPresetRoomTitle(preset.tag, selectedDates, todayKey, preset.defaultPlayers));
     }
   };
 
   const toggleDate = (dateKey: string) => {
     setErrorMsg(null);
-    setSelectedDates((prev) => {
-      if (prev.includes(dateKey)) {
-        if (prev.length === 1) return prev;
-        return prev.filter((d) => d !== dateKey);
+    let nextDates: string[] | null = null;
+    if (selectedDates.includes(dateKey)) {
+      if (selectedDates.length > 1) {
+        nextDates = selectedDates.filter((d) => d !== dateKey);
       }
-      if (prev.length >= 7) return prev;
-      return [...prev, dateKey].sort();
-    });
+    } else if (selectedDates.length < 7) {
+      nextDates = [...selectedDates, dateKey].sort();
+    }
+    if (!nextDates) return;
+    setSelectedDates(nextDates);
+    if (!titleCustomized && gameTag !== 'custom') {
+      setTitle(buildPresetRoomTitle(gameTag, nextDates, todayKey, targetPlayers));
+    }
+  };
+
+  const updateTargetPlayers = (next: number) => {
+    setTargetPlayers(next);
+    if (!titleCustomized && gameTag !== 'custom') {
+      setTitle(buildPresetRoomTitle(gameTag, selectedDates, todayKey, next));
+    }
   };
 
   const submitCreate = async () => {
@@ -197,6 +215,9 @@ export function CreateRoomPage({
       <div className={styles.mobileStage}>
         <header className={styles.topBar}>
           <div className={styles.brandGroup}>
+            <span className={styles.brandMark} aria-hidden="true">
+              <TicketSparkIcon size={16} tone="violet" />
+            </span>
             <span className={styles.brandName}>约局</span>
             <span className={styles.brandSticker}>免登录 · 10秒开黑</span>
           </div>
@@ -209,9 +230,9 @@ export function CreateRoomPage({
                 onNavigate('/r/demo-almost');
               }}
             >
-              <Sparkles size={14} aria-hidden="true" />
+              <StarGlintIcon size={15} tone="rose" />
               <span>演示车票</span>
-              <ArrowRight size={14} aria-hidden="true" />
+              <ArrowSoftIcon size={15} tone="rose" />
             </a>
           )}
         </header>
@@ -269,7 +290,7 @@ export function CreateRoomPage({
                 className={styles.input}
                 onChange={(e) => {
                   setTitle(e.target.value);
-                  setGameTag('custom');
+                  setTitleCustomized(true);
                   setErrorMsg(null);
                 }}
                 onKeyDown={handleTitleKeyDown}
@@ -299,7 +320,7 @@ export function CreateRoomPage({
                   >
                     <span className={styles.calTop}>
                       <span>{opt.weekdayLabel}</span>
-                      {active && <Check size={10} strokeWidth={3} aria-hidden="true" />}
+                      {active && <CheckSoftIcon size={11} bare />}
                     </span>
                     <span className={styles.calBody}>
                       <span className={`${styles.calDay} tabular`}>{opt.dayNumber}</span>
@@ -328,7 +349,7 @@ export function CreateRoomPage({
               </label>
 
               <span className={styles.windowArrow} aria-hidden="true">
-                <ArrowRight size={16} />
+                <ArrowSoftIcon size={17} tone="violet" />
               </span>
 
               <label htmlFor={endId} className={styles.timeCard}>
@@ -360,9 +381,9 @@ export function CreateRoomPage({
                     className={styles.stepperBtn}
                     aria-label="减少人数"
                     disabled={targetPlayers <= 2}
-                    onClick={() => setTargetPlayers((p) => Math.max(2, p - 1))}
+                    onClick={() => updateTargetPlayers(Math.max(2, targetPlayers - 1))}
                   >
-                    <Minus size={16} aria-hidden="true" />
+                    <MinusPillIcon size={16} />
                   </button>
                   <span className={`${styles.stepperValue} tabular`}>{targetPlayers} 人</span>
                   <button
@@ -370,9 +391,9 @@ export function CreateRoomPage({
                     className={styles.stepperBtn}
                     aria-label="增加人数"
                     disabled={targetPlayers >= 10}
-                    onClick={() => setTargetPlayers((p) => Math.min(10, p + 1))}
+                    onClick={() => updateTargetPlayers(Math.min(10, targetPlayers + 1))}
                   >
-                    <Plus size={16} aria-hidden="true" />
+                    <PlusPillIcon size={16} />
                   </button>
                 </div>
 
@@ -424,12 +445,12 @@ export function CreateRoomPage({
           <div className={styles.bottomDock}>
             {errorMsg && (
               <p className={styles.errorBanner} role="alert">
-                <AlertCircle size={15} aria-hidden="true" />
+                <AlertSoftIcon size={16} />
                 <span>{errorMsg}</span>
               </p>
             )}
             <button type="submit" className={styles.submitBtn} disabled={isSubmitting}>
-              <Sparkles size={16} aria-hidden="true" />
+              <StarGlintIcon size={17} tone="auto" />
               <span>{isSubmitting ? '正在印刷车票…' : '生成开黑车票'}</span>
             </button>
           </div>

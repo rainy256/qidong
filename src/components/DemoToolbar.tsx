@@ -1,7 +1,12 @@
-import { RotateCcw, SlidersHorizontal, UserPlus, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { mockRoomClient, type DemoControlState, type DemoRole } from '../api/mockClient';
 import { DEMO_SCENARIOS } from '../mocks/scenarios';
+import {
+  CloseSoftIcon,
+  ResetSoftIcon,
+  SlidersSoftIcon,
+  UserPlusSoftIcon,
+} from './AppIcons';
 import styles from './DemoToolbar.module.css';
 
 type DemoToolbarProps = Readonly<{
@@ -46,7 +51,7 @@ export function DemoToolbar({
               aria-label="收起演示控制台"
               onClick={() => setOpen(false)}
             >
-              <X size={16} aria-hidden="true" />
+              <CloseSoftIcon size={16} />
             </button>
           </div>
 
@@ -133,7 +138,7 @@ export function DemoToolbar({
                     className={styles.chip}
                     onClick={() => mockRoomClient.simulatePeerSubmission(activeRoomId)}
                   >
-                    <UserPlus size={13} aria-hidden="true" />
+                    <UserPlusSoftIcon size={14} tone="violet" />
                     <span>模拟群友提交</span>
                   </button>
                   <button
@@ -192,7 +197,7 @@ export function DemoToolbar({
               className={styles.resetBtn}
               onClick={() => mockRoomClient.resetAll(activeRoomId ?? undefined)}
             >
-              <RotateCcw size={13} aria-hidden="true" />
+              <ResetSoftIcon size={14} />
               <span>重置所有演示数据</span>
             </button>
           </div>
@@ -205,7 +210,7 @@ export function DemoToolbar({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <SlidersHorizontal size={15} aria-hidden="true" />
+        <SlidersSoftIcon size={16} tone="violet" />
         <span>演示切换</span>
       </button>
     </aside>

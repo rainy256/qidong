@@ -33,7 +33,26 @@ function harness() {
       return sqlite.transaction(()=>statements.map(s=>(s as LocalStatement).all<T>()))();
     },
   };
-  const env:Env={DB,TOKEN_PEPPER:'test-secret-0123456789abcdef0123456789abcdef'};
+  const baseHtml = `<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>约局 · 找个大家都能开的时间</title>
+    <meta name="description" content="static" />
+    <meta property="og:title" content="static" />
+    <meta property="og:image" content="/art/hero-runner.png" />
+  </head>
+  <body><div id="root"></div></body>
+</html>`;
+  const ASSETS: NonNullable<Env['ASSETS']> = {
+    async fetch() {
+      return new Response(baseHtml, {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8', ETag: '"v1"' },
+      });
+    },
+  };
+  const env:Env={DB,TOKEN_PEPPER:'test-secret-0123456789abcdef0123456789abcdef',ASSETS};
   const origin='https://qidong.test';
   async function request(path:string,method='GET',cookie='',payload?:unknown) {
     return worker.fetch(new Request(origin+path,{method,headers:{Origin:origin,Cookie:cookie,
@@ -106,5 +125,58 @@ describe('Cloudflare Worker with actual SQLite schema',()=>{
     await worker.scheduled({},h.env);
     expect(h.sqlite.prepare('SELECT * FROM participants').all()).toHaveLength(0);
     expect(h.sqlite.prepare('SELECT * FROM mutations').all()).toHaveLength(0);
+  });
+
+  it('injects dynamic OG share metadata on /r/:id using request origin without side effects',async()=>{
+    const h=setup(),a=await h.session(),b=await h.session();
+    const room=await snap(await h.request('/api/rooms','POST',a,spec),201);
+    const url='/api/rooms/'+room.id;
+    await snap(await h.request(url+'/me','PUT',a,save(2,0,'阿哲')));
+    await snap(await h.request(url+'/me','PUT',b,save(3,0,'小满')));
+
+    const customOrigin='https://yueju.my-custom.com';
+    const pageRes=await worker.fetch(
+      new Request(`${customOrigin}/r/${room.id}?created=1`,{method:'GET'}),
+      {...h.env,TOKEN_PEPPER:''},
+    );
+    expect(pageRes.status).toBe(200);
+    expect(pageRes.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    expect(pageRes.headers.get('Cache-Control')).toBe('no-store');
+    expect(pageRes.headers.get('ETag')).toBeNull();
+
+    const html=await pageRes.text();
+    expect(html.match(/<title>/gi)).toHaveLength(1);
+    expect(html.match(/property="og:title"/gi)).toHaveLength(1);
+    expect(html).toContain('<title>【开黑】已有 2/3 人重合 · 还差 1 人</title>');
+    expect(html).toContain('<meta property="og:title" content="【开黑】已有 2/3 人重合 · 还差 1 人" />');
+    expect(html).toContain(`content="${customOrigin}/art/game-apex.png"`);
+    expect(html).toContain(`<meta property="og:url" content="${customOrigin}/r/${room.id}" />`);
+    expect(html).toContain('<meta itemprop="name" content="【开黑】已有 2/3 人重合 · 还差 1 人" />');
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />');
+    expect((h.sqlite.prepare('SELECT COUNT(*) AS c FROM participants').get() as {c:number}).c).toBe(2);
+
+    const headRes=await worker.fetch(new Request(`${customOrigin}/r/${room.id}`,{method:'HEAD'}),h.env);
+    expect(headRes.status).toBe(200);
+    expect(headRes.headers.get('Content-Type')).toBe('text/html; charset=utf-8');
+    expect(await headRes.text()).toBe('');
+
+    const missingRes=await worker.fetch(new Request(`${customOrigin}/r/r-${'0'.repeat(32)}`,{method:'GET'}),h.env);
+    expect(missingRes.status).toBe(200);
+    expect(await missingRes.text()).toContain('<title>找不到这张开黑车票 · 约局车票</title>');
+  });
+
+  it('escapes HTML and attribute special characters in injected room metadata',async()=>{
+    const h=setup(),a=await h.session();
+    const evilTitle='测试<script>"&\'';
+    const evilSpec={...spec,title:evilTitle};
+    const room=await snap(await h.request('/api/rooms','POST',a,evilSpec),201);
+    await snap(await h.request(`/api/rooms/${room.id}/me`,'PUT',a,save(2,0,'小明"<b>&')));
+
+    const res=await worker.fetch(new Request(`https://yueju.my-custom.com/r/${room.id}`),h.env);
+    const html=await res.text();
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<b>');
+    expect(html).toContain('测试&lt;script&gt;&quot;&amp;&#39;');
+    expect(html).toContain('小明&quot;&lt;b&gt;&amp;');
   });
 });

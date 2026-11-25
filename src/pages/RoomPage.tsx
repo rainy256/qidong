@@ -1,4 +1,11 @@
-import { Lock, Plus, RefreshCw, Sparkles, WifiOff, X } from 'lucide-react';
+import {
+  CloseSoftIcon,
+  LockSoftIcon,
+  PlusPillIcon,
+  RefreshSoftIcon,
+  TicketSparkIcon,
+  WifiOffSoftIcon,
+} from '../components/AppIcons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
 import {
@@ -14,6 +21,7 @@ import { CopyAction } from '../components/CopyAction';
 import { NightEditor } from '../components/NightEditor';
 import { RecommendationCard } from '../components/RecommendationCard';
 import { RosterDisclosure } from '../components/RosterDisclosure';
+import { buildRoomShareMeta } from '../domain/recommend';
 import { formatSyncClock } from '../domain/time';
 import type { Answer, ConnectionState, RoomSnapshot } from '../domain/types';
 import styles from './RoomPage.module.css';
@@ -64,6 +72,19 @@ export function RoomPage({
   useEffect(() => {
     onRoomLoaded(snapshot);
   }, [onRoomLoaded, snapshot]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (snapshot) {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      document.title = buildRoomShareMeta(snapshot, origin).title;
+    } else if (notFound) {
+      document.title = '找不到这张开黑车票 · 约局车票';
+    }
+    return () => {
+      document.title = '约局 · 找个大家都能开的时间';
+    };
+  }, [notFound, snapshot]);
 
   const loadRoom = useCallback(async () => {
     setLoading(true);
@@ -256,7 +277,9 @@ export function RoomPage({
         {/* Compact Mobile Top Utility Strip */}
         <header className={styles.topUtility}>
           <span className={styles.brandWord}>
-            <Sparkles size={14} className={styles.brandSpark} aria-hidden="true" />
+            <span className={styles.brandMark} aria-hidden="true">
+              <TicketSparkIcon size={15} tone="violet" />
+            </span>
             <span>约局车票</span>
           </span>
 
@@ -268,7 +291,7 @@ export function RoomPage({
               onNavigate('/');
             }}
           >
-            <Plus size={14} aria-hidden="true" />
+            <PlusPillIcon size={15} tone="violet" />
             <span>发起新车队</span>
           </a>
         </header>
@@ -293,7 +316,7 @@ export function RoomPage({
               aria-label="关闭提示"
               onClick={() => setShowCreatedBanner(false)}
             >
-              <X size={16} aria-hidden="true" />
+              <CloseSoftIcon size={16} />
             </button>
           </div>
         )}
@@ -313,7 +336,7 @@ export function RoomPage({
                 className={styles.closeRoomBtn}
                 onClick={() => setCloseDialogOpen(true)}
               >
-                <Lock size={13} aria-hidden="true" />
+                <LockSoftIcon size={13} tone="rose" />
                 <span>结束收集</span>
               </button>
             </div>
@@ -322,14 +345,14 @@ export function RoomPage({
 
         {connectionState !== 'live' && (
           <div className={styles.offlineBanner} role="status">
-            <WifiOff size={15} aria-hidden="true" className={styles.offlineIcon} />
+            <WifiOffSoftIcon size={16} tone="honey" className={styles.offlineIcon} />
             <span className="tabular">
               {connectionState === 'offline'
                 ? `离线状态 · 显示 ${formatSyncClock(snapshot.syncedAt)} 同步的结果`
                 : '同步重连中…'}
             </span>
             <button type="button" className={styles.retrySyncBtn} onClick={() => void loadRoom()}>
-              <RefreshCw size={13} aria-hidden="true" />
+              <RefreshSoftIcon size={13} tone="honey" />
               <span>刷新</span>
             </button>
           </div>

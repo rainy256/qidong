@@ -1,16 +1,16 @@
 import {
-  AlertCircle,
-  ArrowRight,
-  CheckCircle2,
-  HeartHandshake,
-  Info,
-  Moon,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-  Zap,
-} from 'lucide-react';
+  AlertSoftIcon,
+  ArrowSoftIcon,
+  BoardedTicketIcon,
+  BoltQuickIcon,
+  CheckSoftIcon,
+  InfoSoftIcon,
+  MoonDreamIcon,
+  PencilSoftIcon,
+  PlusPillIcon,
+  StarGlintIcon,
+  TrashSoftIcon,
+} from './AppIcons';
 import { useEffect, useMemo, useState } from 'react';
 import {
   computeDraftFeedback,
@@ -75,6 +75,28 @@ function flattenDraftPicks(
   return list;
 }
 
+function pickInitialNightId(snapshot: RoomSnapshot, earliestStart: Slot): string {
+  const recs = recommend({
+    nights: snapshot.nights,
+    targetPlayers: snapshot.targetPlayers,
+    durationSlots: snapshot.durationSlots,
+    earliestStart,
+    submissions: snapshot.submissions,
+  });
+  if (recs.length > 0) return recs[0].nightId;
+
+  const mySub = snapshot.viewer.memberId
+    ? snapshot.submissions.find((s) => s.memberId === snapshot.viewer.memberId)
+    : undefined;
+  if (mySub?.answer.kind === 'available' && mySub.answer.picks.length > 0) {
+    const picks = mySub.answer.picks;
+    const myNight = snapshot.nights.find((n) => picks.some((p) => p.nightId === n.id));
+    if (myNight) return myNight.id;
+  }
+
+  return snapshot.nights[0]?.id ?? '';
+}
+
 export function NightEditor({
   snapshot,
   earliestStart,
@@ -92,7 +114,9 @@ export function NightEditor({
     [snapshot.submissions, snapshot.viewer.memberId],
   );
 
-  const [activeNightId, setActiveNightId] = useState<string>(snapshot.nights[0]?.id ?? '');
+  const [activeNightId, setActiveNightId] = useState<string>(() =>
+    pickInitialNightId(snapshot, earliestStart),
+  );
   const [isEditing, setIsEditing] = useState<boolean>(!mySubmission);
   const [isDirty, setIsDirty] = useState<boolean>(false);
   const [draftMode, setDraftMode] = useState<'available' | 'unavailable'>(
@@ -117,7 +141,7 @@ export function NightEditor({
     const identityChanged = identityKey !== lastIdentity;
     if (identityChanged) {
       setLastIdentity(identityKey);
-      setActiveNightId(snapshot.nights[0]?.id ?? '');
+      setActiveNightId(pickInitialNightId(snapshot, earliestStart));
       setIsDirty(false);
       setValidationMsg(null);
       setClosedDirtyNotice(false);
@@ -160,12 +184,12 @@ export function NightEditor({
     }
   }, [
     activeNightId,
+    earliestStart,
     identityKey,
     isDirty,
     lastIdentity,
     mySubmission,
-    snapshot.closedAt,
-    snapshot.nights,
+    snapshot,
   ]);
 
   const activeNight =
@@ -184,28 +208,81 @@ export function NightEditor({
     .filter((s): s is { from: Slot; to: Slot } => s.from !== null && s.to !== null && s.to > s.from)
     .map((s) => ({ from: s.from, to: s.to }));
 
-  // Peak crowd count per night for candy-pill tabs
+  const effectiveSubmissions = useMemo(() => {
+    if (!snapshot.closedAt && isEditing) {
+      const others = snapshot.submissions.filter((s) => s.memberId !== snapshot.viewer.memberId);
+      if (draftMode === 'available') {
+        const normalized = normalizePicks(allDraftPicks, snapshot.nights);
+        if (normalized.length > 0) {
+          return [
+            ...others,
+            {
+              memberId: snapshot.viewer.memberId ?? '__draft_me__',
+              nickname: nickname.trim() || '我',
+              answer: { kind: 'available' as const, picks: normalized },
+              updatedAt: snapshot.syncedAt,
+            },
+          ];
+        }
+      }
+      return others;
+    }
+    return snapshot.submissions;
+  }, [
+    allDraftPicks,
+    draftMode,
+    isEditing,
+    nickname,
+    snapshot.closedAt,
+    snapshot.nights,
+    snapshot.submissions,
+    snapshot.syncedAt,
+    snapshot.viewer.memberId,
+  ]);
+
+  // Peak crowd count per night for candy-pill tabs (including viewer's active/saved availability)
   const peakByNight = useMemo(() => {
     const map = new Map<string, number>();
     for (const n of snapshot.nights) {
-      const cells = computeOthersSlotAvailability(
-        n,
-        snapshot.submissions,
-        snapshot.viewer.memberId,
-      );
+      const cells = computeOthersSlotAvailability(n, effectiveSubmissions, null);
       map.set(n.id, cells.length > 0 ? Math.max(...cells.map((c) => c.count)) : 0);
     }
     return map;
-  }, [snapshot.nights, snapshot.submissions, snapshot.viewer.memberId]);
+  }, [effectiveSubmissions, snapshot.nights]);
 
-  const othersCells = useMemo(() => {
+  const combinedCells = useMemo(() => {
     if (!activeNight) return [];
-    return computeOthersSlotAvailability(
-      activeNight,
-      snapshot.submissions,
-      snapshot.viewer.memberId,
-    );
-  }, [activeNight, snapshot.submissions, snapshot.viewer.memberId]);
+    return computeOthersSlotAvailability(activeNight, effectiveSubmissions, null);
+  }, [activeNight, effectiveSubmissions]);
+
+  const bestActiveNightCandidate = useMemo(() => {
+    if (!activeNight) return null;
+    const recs = recommend({
+      nights: [activeNight],
+      targetPlayers: snapshot.targetPlayers,
+      durationSlots: snapshot.durationSlots,
+      earliestStart: Math.max(earliestStart, activeNight.from),
+      submissions: effectiveSubmissions,
+    });
+    return recs[0] ?? null;
+  }, [
+    activeNight,
+    earliestStart,
+    effectiveSubmissions,
+    snapshot.durationSlots,
+    snapshot.targetPlayers,
+  ]);
+
+  const mySavedActiveSpans: Span[] = useMemo(() => {
+    if (!activeNight || mySubmission?.answer.kind !== 'available') return [];
+    return mySubmission.answer.picks
+      .filter((p) => p.nightId === activeNight.id)
+      .map((p) => ({
+        from: Math.max(activeNight.from, p.from),
+        to: Math.min(activeNight.to, p.to),
+      }))
+      .filter((s) => s.to > s.from);
+  }, [activeNight, mySubmission]);
 
   // Smart 1-tap quick-join span on activeNight matching the biggest continuous peer group
   const quickJoinSpan = useMemo((): Span | null => {
@@ -386,6 +463,44 @@ export function NightEditor({
     void executeSave(cleanName);
   };
 
+  const renderNightTabs = () => {
+    if (!activeNight) return null;
+    return (
+      <div className={styles.nightTabs} role="tablist" aria-label="选择候选夜晚">
+        {snapshot.nights.map((night) => {
+          const selected = night.id === activeNight.id;
+          const peak = peakByNight.get(night.id) ?? 0;
+          const hasPick =
+            !snapshot.closedAt && isEditing
+              ? draftMode === 'available' &&
+                (draftByNight[night.id] ?? []).some(
+                  (s) => s.from !== null && s.to !== null && s.to > s.from,
+                )
+              : mySubmission?.answer.kind === 'available' &&
+                mySubmission.answer.picks.some((p) => p.nightId === night.id);
+          return (
+            <button
+              key={night.id}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              className={`${styles.nightTab} ${selected ? styles.nightTabActive : ''}`}
+              onClick={() => setActiveNightId(night.id)}
+            >
+              <span className={`${styles.tabDate} tabular`}>
+                {formatNightShort(night.dateKey)}
+                {hasPick && <span className={styles.pickDot} aria-label="已选时段" />}
+              </span>
+              {peak > 0 && (
+                <span className={`${styles.tabPeak} tabular`}>{peak}人空</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
+
   if (snapshot.closedAt) {
     return (
       <section id="time-picker" className={styles.card} aria-label="我的时间">
@@ -406,6 +521,21 @@ export function NightEditor({
         ) : (
           <p className={styles.mutedLine}>本次收集已经收官啦，你还没有提交过时段。</p>
         )}
+        {activeNight && (
+          <>
+            <div className={styles.sectionDivider} />
+            {renderNightTabs()}
+            <DensityBar
+              night={activeNight}
+              cells={combinedCells}
+              draftSpans={mySavedActiveSpans}
+              showMyTrack={mySavedActiveSpans.length > 0}
+              targetPlayers={snapshot.targetPlayers}
+              durationSlots={snapshot.durationSlots}
+              bestCandidate={bestActiveNightCandidate}
+            />
+          </>
+        )}
       </section>
     );
   }
@@ -416,7 +546,7 @@ export function NightEditor({
         <div className={styles.summaryRow}>
           <div className={styles.summaryText}>
             <div className={styles.savedTitleRow}>
-              <HeartHandshake size={18} className={styles.savedIcon} aria-hidden="true" />
+              <BoardedTicketIcon size={20} tone="violet" className={styles.savedIcon} />
               <h2 className={styles.sectionTitle}>已上车（{mySubmission.nickname}）</h2>
             </div>
             <p className={`${styles.savedLine} tabular`}>
@@ -432,6 +562,21 @@ export function NightEditor({
             修改时间
           </button>
         </div>
+        {activeNight && (
+          <>
+            <div className={styles.sectionDivider} />
+            {renderNightTabs()}
+            <DensityBar
+              night={activeNight}
+              cells={combinedCells}
+              draftSpans={mySavedActiveSpans}
+              showMyTrack={mySubmission.answer.kind === 'available'}
+              targetPlayers={snapshot.targetPlayers}
+              durationSlots={snapshot.durationSlots}
+              bestCandidate={bestActiveNightCandidate}
+            />
+          </>
+        )}
       </section>
     );
   }
@@ -470,7 +615,7 @@ export function NightEditor({
                   setNicknameDialogOpen(true);
                 }}
               >
-                <Pencil size={12} aria-hidden="true" />
+                <PencilSoftIcon size={13} tone="rose" />
                 <span>{nickname.trim()}</span>
               </button>
             )}
@@ -483,35 +628,7 @@ export function NightEditor({
         </div>
 
         {/* Candy-pill Night Tabs with Peak Crowd Badge */}
-        <div className={styles.nightTabs} role="tablist" aria-label="选择候选夜晚">
-          {snapshot.nights.map((night) => {
-            const selected = night.id === activeNight.id;
-            const peak = peakByNight.get(night.id) ?? 0;
-            const hasPick =
-              draftMode === 'available' &&
-              (draftByNight[night.id] ?? []).some(
-                (s) => s.from !== null && s.to !== null && s.to > s.from,
-              );
-            return (
-              <button
-                key={night.id}
-                type="button"
-                role="tab"
-                aria-selected={selected}
-                className={`${styles.nightTab} ${selected ? styles.nightTabActive : ''}`}
-                onClick={() => setActiveNightId(night.id)}
-              >
-                <span className={`${styles.tabDate} tabular`}>
-                  {formatNightShort(night.dateKey)}
-                  {hasPick && <span className={styles.pickDot} aria-label="已选时段" />}
-                </span>
-                {peak > 0 && (
-                  <span className={`${styles.tabPeak} tabular`}>{peak}人空</span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+        {renderNightTabs()}
 
         {/* 1-Tap Smart Shortcuts for Phones */}
         {draftMode === 'available' && (
@@ -522,7 +639,7 @@ export function NightEditor({
                 className={styles.quickMatchBtn}
                 onClick={() => applyQuickSpan(quickJoinSpan)}
               >
-                <Zap size={14} aria-hidden="true" />
+                <BoltQuickIcon size={15} tone="honey" />
                 <span className="tabular">
                   跟大家一起 {formatSpanInNight(activeNight, quickJoinSpan)}
                 </span>
@@ -533,7 +650,7 @@ export function NightEditor({
               className={styles.quickFullBtn}
               onClick={() => applyQuickSpan({ from: activeNight.from, to: activeNight.to })}
             >
-              <Moon size={14} aria-hidden="true" />
+              <MoonDreamIcon size={15} tone="violet" />
               <span>整晚都有空</span>
             </button>
           </div>
@@ -577,7 +694,7 @@ export function NightEditor({
                         className={styles.removeSegBtn}
                         onClick={() => removeSegment(idx)}
                       >
-                        <Trash2 size={14} aria-hidden="true" />
+                        <TrashSoftIcon size={14} />
                         <span>移除</span>
                       </button>
                     </div>
@@ -602,7 +719,7 @@ export function NightEditor({
                     </label>
 
                     <span className={styles.arrowMid} aria-hidden="true">
-                      <ArrowRight size={16} />
+                      <ArrowSoftIcon size={17} tone="violet" />
                     </span>
 
                     <label className={styles.timeCard} htmlFor={toId}>
@@ -645,19 +762,23 @@ export function NightEditor({
 
             {canAddSecond && (
               <button type="button" className={styles.addSegBtn} onClick={addSecondSegment}>
-                <Plus size={15} aria-hidden="true" />
+                <PlusPillIcon size={15} tone="violet" />
                 <span>加第二段（比如中间去吃饭）</span>
               </button>
             )}
           </div>
         )}
 
-        {/* Variable-height Crowd Wave + Coral Draft Capsule */}
+        {/* Variable-height Crowd Wave + Overlap Track + Coral Draft Capsule */}
         <DensityBar
           night={activeNight}
-          cells={othersCells}
+          cells={combinedCells}
           draftSpans={draftMode === 'available' ? activeDraftSpans : []}
+          showMyTrack={true}
+          hasUnsavedDraft={isDirty}
           targetPlayers={snapshot.targetPlayers}
+          durationSlots={snapshot.durationSlots}
+          bestCandidate={bestActiveNightCandidate}
         />
       </section>
 
@@ -669,11 +790,11 @@ export function NightEditor({
             role="status"
           >
             {feedback.tone === 'ready' ? (
-              <CheckCircle2 size={16} aria-hidden="true" className={styles.feedbackIcon} />
+              <CheckSoftIcon size={16} className={styles.feedbackIcon} />
             ) : feedback.tone === 'almost' ? (
-              <Sparkles size={16} aria-hidden="true" className={styles.feedbackIcon} />
+              <StarGlintIcon size={16} className={styles.feedbackIcon} />
             ) : (
-              <Info size={16} aria-hidden="true" className={styles.feedbackIcon} />
+              <InfoSoftIcon size={16} className={styles.feedbackIcon} />
             )}
             <span className="tabular">{feedback.message}</span>
           </div>
@@ -681,14 +802,14 @@ export function NightEditor({
 
         {validationMsg && (
           <p className={styles.errorBanner} role="alert">
-            <AlertCircle size={15} aria-hidden="true" />
+            <AlertSoftIcon size={15} />
             <span>{validationMsg}</span>
           </p>
         )}
 
         {saveError && (
           <div className={styles.errorBanner} role="alert">
-            <AlertCircle size={15} aria-hidden="true" className={styles.errorIcon} />
+            <AlertSoftIcon size={15} className={styles.errorIcon} />
             <div className={styles.errorContent}>
               <span>{saveError.message}</span>
               {saveError.isConflict && (

@@ -1,5 +1,5 @@
-import { Check, Copy } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { CheckSoftIcon, CopyReportIcon } from './AppIcons';
 import styles from './CopyAction.module.css';
 
 type CopyActionProps = Readonly<{
@@ -118,9 +118,9 @@ export function CopyAction({
           data-failed={state === 'failed' ? '' : undefined}
         >
           {state === 'copied' ? (
-            <Check size={15} strokeWidth={2.2} aria-hidden="true" />
+            <CheckSoftIcon size={16} tone={variant === 'primary' ? 'auto' : 'violet'} />
           ) : (
-            <Copy size={15} strokeWidth={1.9} aria-hidden="true" />
+            <CopyReportIcon size={16} tone={variant === 'primary' ? 'auto' : 'violet'} />
           )}
           <span>{state === 'copied' ? '已复制' : label}</span>
         </button>
@@ -147,7 +147,7 @@ export function CopyAction({
             className={styles.manualTextarea}
             value={text}
             readOnly
-            rows={3}
+            rows={5}
             onFocus={(e) => e.currentTarget.select()}
           />
           <div className={styles.manualActions}>

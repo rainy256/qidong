@@ -1,15 +1,9 @@
 import { useState } from 'react';
+import { inferGameTag } from '../domain/recommend';
 import type { GameTag } from '../domain/types';
 import styles from './GameArtwork.module.css';
 
-export function inferGameTag(title: string, explicit?: GameTag): GameTag {
-  if (explicit) return explicit;
-  const lower = title.toLowerCase();
-  if (lower.includes('apex')) return 'apex';
-  if (lower.includes('gta')) return 'gta';
-  if (title.includes('塔科夫') || title.includes('塔可夫') || lower.includes('tarkov')) return 'tarkov';
-  return 'custom';
-}
+export { inferGameTag };
 
 export function HeroSquadIllustration() {
   const [failed, setFailed] = useState(false);
@@ -37,22 +31,23 @@ type GameStickerArtProps = Readonly<{
 
 export function GameStickerArt({ game, size = 76 }: GameStickerArtProps) {
   const [failed, setFailed] = useState(false);
+  const isFullBleed = game === 'tarkov';
 
   return (
     <div
-      className={styles.stickerWrap}
+      className={`${styles.stickerWrap} ${isFullBleed ? styles.stickerFullBleed : ''}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
     >
       {!failed ? (
         <img
-          src={`/art/game-${game}.png?v=3`}
+          src={`/art/game-${game}.png?v=4`}
           alt=""
           width={size}
           height={size}
           loading="eager"
           decoding="async"
-          className={styles.stickerImg}
+          className={`${styles.stickerImg} ${isFullBleed ? styles.stickerImgFull : ''}`}
           onError={() => setFailed(true)}
         />
       ) : (

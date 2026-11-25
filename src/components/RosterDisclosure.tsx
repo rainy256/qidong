@@ -1,6 +1,6 @@
-import { ChevronDown } from 'lucide-react';
 import { formatMemberAvailabilityLines } from '../domain/recommend';
 import type { Night, Submission } from '../domain/types';
+import { ChevronSoftIcon } from './AppIcons';
 import { AvatarDot } from './AvatarChip';
 import styles from './RosterDisclosure.module.css';
 
@@ -37,7 +37,7 @@ export function RosterDisclosure({
             {availableList.length} 人有空
             {unavailableList.length > 0 ? ` · ${unavailableList.length} 人这次不行` : ''}
           </span>
-          <ChevronDown size={16} className={styles.chevron} aria-hidden="true" />
+          <ChevronSoftIcon size={16} className={styles.chevron} />
         </summary>
 
         <div className={styles.listBody}>

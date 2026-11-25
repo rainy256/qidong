@@ -28,16 +28,20 @@
   gap: 0.375rem;
   padding: 0.4375rem 0.9375rem;
   border-radius: var(--radius-pill);
-  border: 1.5px solid var(--border-control);
-  background-color: var(--bg-surface);
+  border: 1.5px solid var(--glass-ring);
+  background: var(--glass-surface);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   color: var(--ink-primary);
   font-size: 0.8125rem;
-  font-weight: 600;
-  box-shadow: var(--shadow-subtle);
+  font-weight: 650;
+  box-shadow:
+    0 2px 0 rgb(206 192 234 / 0.45),
+    0 4px 12px rgb(104 82 148 / 0.12);
 }
 
 .launcher:hover {
-  background-color: var(--bg-subtle);
+  background-color: var(--bg-surface);
 }
 
 .panel {

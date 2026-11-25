@@ -1,4 +1,4 @@
-import { normalizePicks } from '../src/domain/recommend';
+import { buildRoomShareMeta, normalizePicks, type RoomShareMeta } from '../src/domain/recommend';
 import type { GameTag, Night, Pick, RoomSnapshot, Submission } from '../src/domain/types';
 import { slotToShanghaiParts } from '../src/domain/time';
 import { validateCreateRoomBody, validateSaveMineBody, validateCloseRoomBody, ValidationError } from '../server/validation';
@@ -11,7 +11,10 @@ interface Statement {
   run(): Promise<D1Result<unknown>>;
 }
 interface D1 { prepare(sql: string): Statement; batch<T = unknown>(statements: Statement[]): Promise<D1Result<T>[]>; }
-interface Env { DB: D1; TOKEN_PEPPER: string; ROOM_TTL_DAYS?: string; }
+interface AssetsBinding {
+  fetch(input: Request | URL | string): Promise<Response>;
+}
+interface Env { DB: D1; TOKEN_PEPPER: string; ROOM_TTL_DAYS?: string; ASSETS?: AssetsBinding; }
 interface Room {
   id: string; owner_hash: string; create_hash: string; title: string; game_tag: GameTag | null;
   nights_json: string; target_players: number; duration_slots: number; room_revision: number;
@@ -132,12 +135,99 @@ async function mutate(db:D1, data:{roomId:string;actor:string;action:'save'|'clo
   if(row.request_hash!==data.hash) throw fail.conflict();
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/[\r\n\t]+/g, ' ')
+    .trim()
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function injectRoomMeta(html: string, meta: RoomShareMeta): string {
+  const cleaned = html
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>\s*/gi, '')
+    .replace(
+      /<meta\b[^>]*(?:name=["'](?:description|twitter:[^"']+)["']|property=["']og:[^"']+["']|itemprop=["'](?:name|description|image)["'])[^>]*>\s*/gi,
+      '',
+    );
+  const t = escapeHtml(meta.title);
+  const d = escapeHtml(meta.description);
+  const img = escapeHtml(meta.imageUrl);
+  const canonical = escapeHtml(meta.canonicalUrl);
+  const tags = [
+    `<title>${t}</title>`,
+    `<meta name="description" content="${d}" />`,
+    `<meta itemprop="name" content="${t}" />`,
+    `<meta itemprop="description" content="${d}" />`,
+    `<meta itemprop="image" content="${img}" />`,
+    `<meta property="og:type" content="website" />`,
+    `<meta property="og:site_name" content="约局车票" />`,
+    `<meta property="og:url" content="${canonical}" />`,
+    `<meta property="og:title" content="${t}" />`,
+    `<meta property="og:description" content="${d}" />`,
+    `<meta property="og:image" content="${img}" />`,
+    `<meta name="twitter:card" content="summary_large_image" />`,
+    `<meta name="twitter:title" content="${t}" />`,
+    `<meta name="twitter:description" content="${d}" />`,
+    `<meta name="twitter:image" content="${img}" />`,
+  ].join('\n    ');
+  if (/<\/head>/i.test(cleaned)) {
+    return cleaned.replace(/<\/head>/i, `    ${tags}\n  </head>`);
+  }
+  return `${tags}\n${cleaned}`;
+}
+
+async function handleRoomPage(url: URL, method: string, env: Env): Promise<Response> {
+  if (method !== 'GET' && method !== 'HEAD') {
+    return new Response('Method Not Allowed', { status: 405, headers: { Allow: 'GET, HEAD' } });
+  }
+  if (!env.ASSETS) {
+    return new Response('Static assets binding unavailable', { status: 500 });
+  }
+  const assetRes = await env.ASSETS.fetch(new Request(new URL('/', url), { method: 'GET' }));
+  if (!assetRes.ok) {
+    return assetRes;
+  }
+  const html = await assetRes.text();
+  let meta: RoomShareMeta = {
+    title: '找不到这张开黑车票 · 约局车票',
+    description: '可能链接有误或房间已过期，点击发起新的约局车票。',
+    imageUrl: `${url.origin}/art/hero-runner.png`,
+    canonicalUrl: `${url.origin}${url.pathname}`,
+  };
+  const roomMatch = /^\/r\/(r-[a-f0-9]{32})\/?$/.exec(url.pathname);
+  if (roomMatch) {
+    try {
+      const roomSnap = await snapshot(env.DB, roomMatch[1], null, null);
+      meta = buildRoomShareMeta(roomSnap, url.origin);
+    } catch (err) {
+      if (!(err instanceof ApiError && err.status === 404)) {
+        console.error('qidong meta lookup error', err);
+      }
+    }
+  }
+  const rendered = injectRoomMeta(html, meta);
+  const headers = new Headers(assetRes.headers);
+  headers.delete('etag');
+  headers.delete('content-length');
+  headers.set('Content-Type', 'text/html; charset=utf-8');
+  headers.set('Cache-Control', 'no-store');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  return new Response(method === 'HEAD' ? null : rendered, { status: 200, headers });
+}
+
 export default {
   async fetch(request: Request,env: Env): Promise<Response> {
     try {
       const url=new URL(request.url), path=url.pathname, method=request.method;
       if(url.protocol!=='https:' && !['localhost','127.0.0.1','[::1]'].includes(url.hostname)) {
         throw new ApiError(400,'HTTPS_REQUIRED','请使用 HTTPS 访问。');
+      }
+      if(path.startsWith('/r/')) {
+        return await handleRoomPage(url, method, env);
       }
       const sign=await signer(env.TOKEN_PEPPER);
       if(path==='/api/health' && method==='GET') {

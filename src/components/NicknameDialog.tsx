@@ -1,5 +1,5 @@
-import { AlertCircle, Sparkles } from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { AlertSoftIcon, StarGlintIcon } from './AppIcons';
 import { MascotBadge } from './MascotBadge';
 import styles from './NicknameDialog.module.css';
 
@@ -163,7 +163,7 @@ export function NicknameDialog({
 
         {error && (
           <p className={styles.error} role="alert">
-            <AlertCircle size={15} aria-hidden="true" />
+            <AlertSoftIcon size={15} />
             <span>{error}</span>
           </p>
         )}
@@ -178,7 +178,7 @@ export function NicknameDialog({
             再改改
           </button>
           <button type="submit" className={styles.confirmBtn} disabled={isSaving}>
-            <Sparkles size={16} aria-hidden="true" />
+            <StarGlintIcon size={16} tone="auto" />
             <span>{isSaving ? '正在上车…' : '确认上车！'}</span>
           </button>
         </div>

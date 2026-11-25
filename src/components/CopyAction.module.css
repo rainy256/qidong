@@ -56,14 +56,25 @@
 }
 
 .secondary {
-  border: 1.5px solid var(--border-control);
+  border: 1.5px solid #cfc0dc;
   background-color: var(--bg-surface);
   color: var(--ink-primary);
-  box-shadow: 0 2px 0 var(--border-hairline);
+  box-shadow: 0 2px 0 #ebe1f4;
 }
 
 .secondary:hover {
-  background-color: var(--bg-subtle);
+  background-color: #f8f4fc;
+}
+
+@media (prefers-color-scheme: dark) {
+  .secondary {
+    border-color: #5c5070;
+    box-shadow: 0 2px 0 #1c1726;
+  }
+
+  .secondary:hover {
+    background-color: var(--bg-subtle);
+  }
 }
 
 .ghost {
