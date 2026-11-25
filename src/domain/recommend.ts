@@ -483,6 +483,32 @@ export type RoomShareMeta = Readonly<{
   canonicalUrl: string;
 }>;
 
+export type RoomCompletionState = 'open' | 'settled' | 'closed-incomplete';
+
+export function getRoomCompletionState(
+  closedAt: string | null,
+  candidate: Candidate | null,
+): RoomCompletionState {
+  if (closedAt === null) return 'open';
+  return candidate?.missingPlayers === 0 ? 'settled' : 'closed-incomplete';
+}
+
+export function formatCandidateProgress(candidate: Candidate, targetPlayers: number): string {
+  if (candidate.missingPlayers === 0) {
+    return candidate.memberIds.length > targetPlayers
+      ? `已有 ${candidate.memberIds.length} 人有空，已满足 ${targetPlayers} 人发车条件`
+      : `已凑齐 ${candidate.memberIds.length}/${targetPlayers} 人`;
+  }
+  return `已有 ${candidate.memberIds.length}/${targetPlayers} 人重合 · 还差 ${candidate.missingPlayers} 人`;
+}
+
+export function formatCandidateBadge(candidate: Candidate, targetPlayers: number): string {
+  if (candidate.missingPlayers > 0) return `还差 ${candidate.missingPlayers} 人`;
+  return candidate.memberIds.length === targetPlayers
+    ? `${targetPlayers} 人可开`
+    : `${candidate.memberIds.length} 人有空 · ${targetPlayers} 人可开`;
+}
+
 export function buildRoomShareMeta(
   snapshot: Readonly<{
     id: string;
@@ -505,6 +531,7 @@ export function buildRoomShareMeta(
     submissions: snapshot.submissions,
   });
   const primary = candidates[0] ?? null;
+  const completionState = getRoomCompletionState(snapshot.closedAt, primary);
 
   const availableCount = snapshot.submissions.filter((s) => s.answer.kind === 'available').length;
   const unavailableCount = snapshot.submissions.length - availableCount;
@@ -526,30 +553,40 @@ export function buildRoomShareMeta(
     primary && night ? formatSlotInNight(primary.availableUntil, night.dateKey) : '';
 
   let title: string;
-  if (snapshot.closedAt !== null) {
-    title =
-      primary && night
-        ? `【已定场】${snapshot.title} · ${dayLabel} ${startLabel} 开`
-        : `【收集已结束】${snapshot.title}`;
+  if (completionState === 'settled' && primary && night) {
+    title = `【已定场】${snapshot.title} · ${dayLabel} ${startLabel} 开`;
+  } else if (completionState === 'closed-incomplete') {
+    const progress = primary && night ? ` · ${formatCandidateProgress(primary, snapshot.targetPlayers)}` : '';
+    title = `【收集已结束·未凑齐】${snapshot.title}${progress}`;
   } else if (totalSubmitted === 0) {
     title = `【${snapshot.title}】0/${snapshot.targetPlayers} 人已填 · 点击上车`;
   } else if (primary && night && primary.missingPlayers === 0) {
-    title = `【${snapshot.title}】已凑齐 ${primary.memberIds.length}/${snapshot.targetPlayers} 人 · ${dayLabel} ${startLabel} 开`;
+    title = `【${snapshot.title}】${formatCandidateProgress(primary, snapshot.targetPlayers)} · ${dayLabel} ${startLabel} 开`;
   } else if (primary && night) {
-    title = `【${snapshot.title}】已有 ${primary.memberIds.length}/${snapshot.targetPlayers} 人重合 · 还差 ${primary.missingPlayers} 人`;
+    title = `【${snapshot.title}】${formatCandidateProgress(primary, snapshot.targetPlayers)}`;
   } else {
     title = `【${snapshot.title}】已有 ${totalSubmitted} 人填完 · 点击来凑时间`;
   }
 
   let description: string;
-  if (snapshot.closedAt !== null && primary && night) {
-    description = `${dayLabel} ${startLabel}–${endLabel}，${formatMemberListZh(names)} ${names.length} 人已定场（至少玩 ${durationText}）。`;
-  } else if (snapshot.closedAt !== null) {
-    description = `${dateRange}，本次收集已结束，点击查看最终记录。`;
+  if (completionState === 'settled' && primary && night) {
+    const settledCountNote =
+      names.length > snapshot.targetPlayers
+        ? `${names.length} 人已定场，满足 ${snapshot.targetPlayers} 人发车条件`
+        : `${names.length} 人已定场`;
+    description = `${dayLabel} ${startLabel}–${endLabel}，${formatMemberListZh(names)}（${settledCountNote}，至少玩 ${durationText}）。`;
+  } else if (completionState === 'closed-incomplete' && primary && night) {
+    description = `${dayLabel} ${startLabel}–${endLabel}，${formatMemberListZh(names)}（${formatCandidateProgress(primary, snapshot.targetPlayers)}）；本次收集已结束，未达到发车人数要求。`;
+  } else if (completionState === 'closed-incomplete') {
+    description = `${dateRange}，本次收集已结束，未凑出满足人数和时长要求的重合时段，点击查看最终记录。`;
   } else if (totalSubmitted === 0) {
     description = `${dateRange}，${snapshot.targetPlayers} 人发车（至少玩 ${durationText}），免登录点开直接选空余时间。`;
   } else if (primary && night && primary.missingPlayers === 0) {
-    description = `${dayLabel} ${startLabel}–${endLabel} 可连玩满 ${durationText}（${formatMemberListZh(names)}），点击查看详情或补报时间。`;
+    const progressNote =
+      names.length > snapshot.targetPlayers
+        ? `；${formatCandidateProgress(primary, snapshot.targetPlayers)}`
+        : '';
+    description = `${dayLabel} ${startLabel}–${endLabel} 可连玩满 ${durationText}（${formatMemberListZh(names)}${progressNote}），点击查看详情或补报时间。`;
   } else if (primary && night) {
     description = `最佳重合 ${dayLabel} ${startLabel}–${endLabel}（${formatMemberListZh(names)}），还差 ${primary.missingPlayers} 人凑齐 ${snapshot.targetPlayers} 人发车，点开直接上车！`;
   } else {
@@ -574,7 +611,19 @@ export function formatGroupNotice(
     .map((s) => s.nickname);
   const durationText = formatDuration(snapshot.durationSlots);
   const dateRange = formatNightRangeHeader(snapshot.nights);
-  const closedTag = snapshot.closedAt ? ' · 已定场' : '';
+  const completionState = getRoomCompletionState(snapshot.closedAt, candidate);
+  const closedTag =
+    completionState === 'settled'
+      ? ' · 已定场'
+      : completionState === 'closed-incomplete'
+        ? ' · 收集已结束（未凑齐）'
+        : '';
+  const closedAction =
+    completionState === 'settled'
+      ? '已锁定本场，详情见链接：'
+      : completionState === 'closed-incomplete'
+        ? '收集已结束，尚未达到发车人数要求，详情见链接：'
+        : null;
 
   const altItems: string[] = [];
   for (const alt of alternatives.slice(0, 2)) {
@@ -585,7 +634,9 @@ export function formatGroupNotice(
     const altEnd = formatSlotInNight(alt.availableUntil, altNight.dateKey);
     const altStatus =
       alt.missingPlayers === 0
-        ? `${alt.memberIds.length} 人可开`
+        ? alt.memberIds.length > snapshot.targetPlayers
+          ? `${alt.memberIds.length} 人有空，已满足 ${snapshot.targetPlayers} 人发车条件`
+          : `${alt.memberIds.length} 人可开`
         : `${alt.memberIds.length} 人，差 ${alt.missingPlayers} 人`;
     altItems.push(`${altDay} ${altStart}–${altEnd}（${altStatus}）`);
   }
@@ -594,9 +645,15 @@ export function formatGroupNotice(
     unavailableNames.length > 0 ? `本次不便：${unavailableNames.join('、')}` : null;
 
   if (snapshot.submissions.length === 0) {
+    const emptyHeadline =
+      completionState === 'closed-incomplete'
+        ? `【${snapshot.title}】收集已结束 · 未凑齐（0/${snapshot.targetPlayers} 人已填，${dateRange} · 至少玩 ${durationText}）${syncNote}`
+        : `【${snapshot.title}】0/${snapshot.targetPlayers} 人已填（${dateRange} · 至少玩 ${durationText}）${syncNote}`;
     return [
-      `【${snapshot.title}】0/${snapshot.targetPlayers} 人已填（${dateRange} · 至少玩 ${durationText}）${syncNote}`,
-      '刚建好车票，免登录点链接选一下你有空的晚上：',
+      emptyHeadline,
+      completionState === 'closed-incomplete'
+        ? '本次收集已结束，尚未达到发车人数要求，详情见链接：'
+        : '刚建好车票，免登录点链接选一下你有空的晚上：',
       inviteUrl,
     ].join('\n');
   }
@@ -611,8 +668,8 @@ export function formatGroupNotice(
     return [
       `【${snapshot.title}】${progressNote}${closedTag}${syncNote}`,
       ...(unavailableLine ? [unavailableLine] : []),
-      snapshot.closedAt
-        ? `收集已结束，暂未凑出满 ${durationText} 的连续重合时段，详情见链接：`
+      completionState === 'closed-incomplete'
+        ? `收集已结束，暂未凑出满 ${durationText} 的连续重合时段，未达到发车人数要求，详情见链接：`
         : `暂未凑出满 ${durationText} 的连续重合时段，还没填的朋友点链接补个位：`,
       inviteUrl,
     ].join('\n');
@@ -629,11 +686,11 @@ export function formatGroupNotice(
     const latestNote =
       candidate.lastStart > candidate.firstStart ? `，最晚 ${lastStartLabel} 开` : '';
     return [
-      `【${snapshot.title}】已凑齐 ${candidate.memberIds.length}/${snapshot.targetPlayers} 人${closedTag}${syncNote}`,
+      `【${snapshot.title}】${formatCandidateProgress(candidate, snapshot.targetPlayers)}${closedTag}${syncNote}`,
       `推荐发车：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，满 ${durationText}${latestNote}）`,
       ...(altLine ? [altLine] : []),
       ...(unavailableLine ? [unavailableLine] : []),
-      snapshot.closedAt ? '已锁定本场，详情见链接：' : '大家这个点开怎么样？详情/改时间：',
+      closedAction ?? '大家这个点开怎么样？详情/改时间：',
       inviteUrl,
     ].join('\n');
   }
@@ -644,7 +701,7 @@ export function formatGroupNotice(
       `最佳重合：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，都能连玩满 ${durationText}）`,
       ...(altLine ? [altLine] : []),
       ...(unavailableLine ? [unavailableLine] : []),
-      snapshot.closedAt ? '收集已结束，详情见链接：' : '有空的朋友点链接补个位上车：',
+      closedAction ?? '有空的朋友点链接补个位上车：',
       inviteUrl,
     ].join('\n');
   }
@@ -654,26 +711,7 @@ export function formatGroupNotice(
     `当前最佳：${dayLabel} ${startLabel}–${endLabel}（${names.join('、')}，满 ${durationText}）`,
     ...(altLine ? [altLine] : []),
     ...(unavailableLine ? [unavailableLine] : []),
-    snapshot.closedAt ? '收集已结束，详情见链接：' : '还没填的小伙伴点链接选下时间：',
+    closedAction ?? '还没填的小伙伴点链接选下时间：',
     inviteUrl,
   ].join('\n');
-}
-
-export function formatMemberAvailabilityLines(
-  sub: Submission,
-  nights: readonly Night[],
-): string {
-  if (sub.answer.kind === 'unavailable') return '这次都不行';
-  const parts: string[] = [];
-  for (const night of nights) {
-    const spans = mergeSpans(
-      sub.answer.picks
-        .filter((p) => p.nightId === night.id)
-        .map((p) => ({ from: Math.max(night.from, p.from), to: Math.min(night.to, p.to) })),
-    );
-    if (spans.length === 0) continue;
-    const label = spans.map((s) => formatSpanInNight(night, s)).join('、');
-    parts.push(`${formatNightWeekday(night.dateKey)} ${label}`);
-  }
-  return parts.length > 0 ? parts.join('；') : '未填写时段';
 }
