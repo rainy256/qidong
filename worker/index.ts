@@ -1,5 +1,5 @@
 import { buildRoomShareMeta, normalizePicks, type RoomShareMeta } from '../src/domain/recommend';
-import type { GameTag, Night, Pick, RoomSnapshot, Submission } from '../src/domain/types';
+import type { GameTag, MyRoomSummary, Night, Pick, RoomSnapshot, Submission } from '../src/domain/types';
 import { slotToShanghaiParts } from '../src/domain/time';
 import { validateCreateRoomBody, validateSaveMineBody, validateCloseRoomBody, ValidationError } from '../server/validation';
 
@@ -19,6 +19,17 @@ interface Room {
   id: string; owner_hash: string; create_hash: string; title: string; game_tag: GameTag | null;
   nights_json: string; target_players: number; duration_slots: number; room_revision: number;
   closed_at: string | null; expires_at: string;
+}
+interface MyRoomRow {
+  id: string;
+  title: string;
+  game_tag: GameTag | null;
+  nights_json: string;
+  target_players: number;
+  duration_slots: number;
+  closed_at: string | null;
+  created_at: string;
+  submission_count: number;
 }
 interface Participant {
   id: string; member_hash: string; nickname: string; answer_kind: 'available' | 'unavailable';
@@ -240,6 +251,36 @@ export default {
         const secure=url.protocol==='https:'?'; Secure':'';
         return json({ok:true},200,{'Set-Cookie':cookieName(url)+'='+randomToken()+'; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000'+secure});
       }
+      if(path==='/api/my-rooms' && method==='GET') {
+        if(!token) return json({rooms:[]});
+        const creatorSession=await sign(['creator_session',token]);
+        const nowIso=new Date().toISOString();
+        const [result]=await env.DB.batch([
+          env.DB.prepare(
+            `SELECT r.id, r.title, r.game_tag, r.nights_json, r.target_players,
+                    r.duration_slots, r.closed_at, r.created_at,
+                    (SELECT COUNT(*) FROM participants p WHERE p.room_id = r.id) AS submission_count
+             FROM rooms r
+             WHERE r.creator_session_hash = ? AND r.expires_at > ?
+             ORDER BY r.created_at DESC
+             LIMIT 20`,
+          ).bind(creatorSession,nowIso),
+        ]);
+        const rows=(result?.results??[]) as MyRoomRow[];
+        const rooms: MyRoomSummary[]=rows.map(row=>({
+          id:row.id,
+          title:row.title,
+          ...(row.game_tag?{gameTag:row.game_tag}:{}),
+          nights:JSON.parse(row.nights_json) as Night[],
+          targetPlayers:row.target_players,
+          durationSlots:row.duration_slots,
+          submissionCount:Number(row.submission_count??0),
+          closedAt:row.closed_at,
+          createdAt:row.created_at,
+          role:'owner',
+        }));
+        return json({rooms});
+      }
       if(!['GET','HEAD'].includes(method) && !sameOrigin(request,url))
         throw new ApiError(403,'ORIGIN_FORBIDDEN','来源校验失败，仅允许同源请求。');
       if(path==='/api/rooms' && method==='POST') {
@@ -253,14 +294,15 @@ export default {
           dates.add(n.dateKey);
         }
         const id='r-'+(await sign(['room',token,input.mutationId])).slice(0,32);
+        const creatorSession=await sign(['creator_session',token]);
         const owner=await sign(['owner',token,id]), member=await sign(['member',token,id]);
         const hash=await digest({title:input.title,gameTag:input.gameTag??null,nights:input.nights,targetPlayers:input.targetPlayers,durationSlots:input.durationSlots});
         const now=Date.now(), iso=new Date(now).toISOString();
         const ttl=Number(env.ROOM_TTL_DAYS??30);
         if(!Number.isInteger(ttl)||ttl<1||ttl>365) throw new ApiError(503,'CONFIG_ERROR','房间有效期配置不正确。');
-        const result=await env.DB.prepare(`INSERT INTO rooms(id,owner_hash,create_hash,title,game_tag,nights_json,target_players,duration_slots,expires_at,created_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING RETURNING id`)
-          .bind(id,owner,hash,input.title,input.gameTag??null,JSON.stringify(input.nights),input.targetPlayers,input.durationSlots,new Date(now+ttl*86400000).toISOString(),iso).first<{id:string}>();
+        const result=await env.DB.prepare(`INSERT INTO rooms(id,owner_hash,creator_session_hash,create_hash,title,game_tag,nights_json,target_players,duration_slots,expires_at,created_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING RETURNING id`)
+          .bind(id,owner,creatorSession,hash,input.title,input.gameTag??null,JSON.stringify(input.nights),input.targetPlayers,input.durationSlots,new Date(now+ttl*86400000).toISOString(),iso).first<{id:string}>();
         const room=await activeRoom(env.DB,id,iso);
         if(room.owner_hash!==owner || room.create_hash!==hash) throw fail.conflict();
         return json(await snapshot(env.DB,id,member,owner),result?201:200);
@@ -275,6 +317,17 @@ export default {
         await activeRoom(env.DB,id,new Date().toISOString());
         // Cloudflare MVP uses visible-tab polling, not an in-memory SSE hub.
         return new Response(null,{status:204,headers:{'Cache-Control':'no-store'}});
+      }
+      if(method==='DELETE'&&!action) {
+        if(!token||!owner) throw fail.session();
+        const room=await activeRoom(env.DB,id,new Date().toISOString());
+        if(room.owner_hash!==owner) throw new ApiError(403,'OWNER_REQUIRED','只有房主可以删除这个车队。');
+        await env.DB.batch([
+          env.DB.prepare('DELETE FROM participants WHERE room_id=? AND EXISTS(SELECT 1 FROM rooms WHERE id=? AND owner_hash=?)').bind(id,id,owner),
+          env.DB.prepare('DELETE FROM mutations WHERE room_id=? AND EXISTS(SELECT 1 FROM rooms WHERE id=? AND owner_hash=?)').bind(id,id,owner),
+          env.DB.prepare('DELETE FROM rooms WHERE id=? AND owner_hash=?').bind(id,owner),
+        ]);
+        return json({ok:true,id});
       }
       if(method!=='PUT'||(action!=='me'&&action!=='closure')) throw fail.missing();
       if(!token||!member||!owner) throw fail.session();

@@ -231,4 +231,62 @@ describe('HttpSseRoomClient', () => {
 
     unsub();
   });
+
+  it('lists creator rooms from GET /api/my-rooms and returns empty array on 404 fallback', async () => {
+    const client = new HttpSseRoomClient('/api');
+    const mockRooms = [
+      {
+        id: 'r-test1',
+        title: '周五塔科夫',
+        gameTag: 'tarkov',
+        nights: [{ id: 'n1', dateKey: '2026-11-27', from: 995670, to: 995682 }],
+        targetPlayers: 4,
+        durationSlots: 4,
+        submissionCount: 2,
+        closedAt: null,
+        createdAt: '2026-11-25T03:00:00.000Z',
+        role: 'owner',
+      },
+    ];
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse(200, { rooms: mockRooms })),
+    );
+    await expect(client.listMyRooms()).resolves.toEqual(mockRooms);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse(404, { error: { code: 'NOT_FOUND', message: 'not found' } }),
+      ),
+    );
+    await expect(client.listMyRooms()).resolves.toEqual([]);
+  });
+
+  it('deletes an owned room via DELETE /api/rooms/:id and maps 403/404 errors', async () => {
+    const client = new HttpSseRoomClient('/api');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(jsonResponse(200, { ok: true, id: 'r-del' })),
+    );
+    await expect(client.deleteRoom('r-del')).resolves.toBeUndefined();
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse(403, { error: { code: 'OWNER_REQUIRED', message: '只有房主可以删除这个车队。' } }),
+      ),
+    );
+    await expect(client.deleteRoom('r-del')).rejects.toBeInstanceOf(ForbiddenError);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValueOnce(
+        jsonResponse(404, { error: { code: 'NOT_FOUND', message: '不存在' } }),
+      ),
+    );
+    await expect(client.deleteRoom('r-missing')).rejects.toBeInstanceOf(NotFoundError);
+  });
 });

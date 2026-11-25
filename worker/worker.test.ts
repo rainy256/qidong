@@ -16,6 +16,7 @@ function harness() {
   const sqlite = new Database(':memory:');
   sqlite.pragma('foreign_keys = ON');
   sqlite.exec(readFileSync(new URL('./migrations/0001_initial.sql',import.meta.url),'utf8'));
+  sqlite.exec(readFileSync(new URL('./migrations/0002_session_room_index.sql',import.meta.url),'utf8'));
   class LocalStatement {
     constructor(readonly sql:string,readonly values:Values=[]) {}
     bind(...values:Values) { return new LocalStatement(this.sql,values); }
@@ -178,5 +179,74 @@ describe('Cloudflare Worker with actual SQLite schema',()=>{
     expect(html).not.toContain('<b>');
     expect(html).toContain('测试&lt;script&gt;&quot;&amp;&#39;');
     expect(html).toContain('小明&quot;&lt;b&gt;&amp;');
+  });
+
+  it('recovers creator active rooms via GET /api/my-rooms with session isolation and expiry filtering',async()=>{
+    const h=setup();
+    const anonRes=await h.request('/api/my-rooms');
+    expect(anonRes.status).toBe(200);
+    expect(anonRes.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(anonRes.headers.get('Set-Cookie')).toBeNull();
+    expect(await anonRes.json()).toEqual({rooms:[]});
+
+    const a=await h.session(), b=await h.session();
+    const roomA1=await snap(await h.request('/api/rooms','POST',a,{...spec,title:'周五夜战',mutationId:key(10)}),201);
+    await snap(await h.request(`/api/rooms/${roomA1.id}/me`,'PUT',a,save(11,0,'阿哲')));
+    await snap(await h.request(`/api/rooms/${roomA1.id}/me`,'PUT',b,save(12,0,'小满')));
+
+    // Advance created_at slightly for deterministic newest-first ordering
+    h.sqlite.prepare('UPDATE rooms SET created_at=? WHERE id=?').run('2026-11-24T10:00:00.000Z',roomA1.id);
+    const roomA2=await snap(await h.request('/api/rooms','POST',a,{...spec,title:'周六二车',gameTag:'tarkov',mutationId:key(13)}),201);
+    await snap(await h.request(`/api/rooms/${roomA2.id}/closure`,'PUT',a,{mutationId:key(14)}));
+
+    const roomB1=await snap(await h.request('/api/rooms','POST',b,{...spec,title:'别人开的房',mutationId:key(15)}),201);
+    // Legacy row without creator_session_hash should never leak or error
+    h.sqlite.prepare(`INSERT INTO rooms(id,owner_hash,creator_session_hash,create_hash,title,game_tag,nights_json,target_players,duration_slots,expires_at,created_at)
+      VALUES(?,?,?,?,?,?,?,?,?,?,?)`).run(
+        `r-${'f'.repeat(32)}`,'legacy-owner',null,'legacy-hash','旧房',null,JSON.stringify([night]),3,4,'2099-01-01T00:00:00.000Z','2026-11-24T08:00:00.000Z',
+      );
+
+    const aRes=await h.request('/api/my-rooms','GET',a);
+    expect(aRes.status).toBe(200);
+    const aBody=await aRes.json() as {rooms:Array<{id:string;title:string;submissionCount:number;closedAt:string|null;role:string}>};
+    expect(aBody.rooms.map(r=>r.id)).toEqual([roomA2.id,roomA1.id]);
+    expect(aBody.rooms[0]).toMatchObject({id:roomA2.id,title:'周六二车',submissionCount:0,role:'owner'});
+    expect(aBody.rooms[0].closedAt).toBeTruthy();
+    expect(aBody.rooms[1]).toMatchObject({id:roomA1.id,title:'周五夜战',submissionCount:2,closedAt:null,role:'owner'});
+
+    // Expired room is excluded
+    h.sqlite.prepare('UPDATE rooms SET expires_at=? WHERE id=?').run('2020-01-01T00:00:00.000Z',roomA1.id);
+    const aAfterExpire=await (await h.request('/api/my-rooms','GET',a)).json() as {rooms:Array<{id:string}>};
+    expect(aAfterExpire.rooms.map(r=>r.id)).toEqual([roomA2.id]);
+
+    const bBody=await (await h.request('/api/my-rooms','GET',b)).json() as {rooms:Array<{id:string}>};
+    expect(bBody.rooms.map(r=>r.id)).toEqual([roomB1.id]);
+  });
+
+  it('allows owner to permanently delete a room via DELETE /api/rooms/:id while blocking unauthorized callers',async()=>{
+    const h=setup(),a=await h.session(),b=await h.session();
+    const room=await snap(await h.request('/api/rooms','POST',a,{...spec,title:'可删车队',mutationId:key(20)}),201);
+    const url='/api/rooms/'+room.id;
+    await snap(await h.request(url+'/me','PUT',a,save(21,0,'阿哲')));
+    await snap(await h.request(url+'/me','PUT',b,save(22,0,'小满')));
+
+    expect((await h.request(url,'DELETE')).status).toBe(401);
+    const crossOrigin=await worker.fetch(new Request(`https://qidong.test${url}`,{method:'DELETE',headers:{Origin:'https://elsewhere.test',Cookie:a}}),h.env);
+    expect(crossOrigin.status).toBe(403);
+    expect((await h.request(url,'DELETE',b)).status).toBe(403);
+    expect((h.sqlite.prepare('SELECT COUNT(*) AS c FROM participants WHERE room_id=?').get(room.id) as {c:number}).c).toBe(2);
+
+    const delRes=await h.request(url,'DELETE',a);
+    expect(delRes.status).toBe(200);
+    expect(await delRes.json()).toEqual({ok:true,id:room.id});
+
+    expect((await h.request(url,'GET',a)).status).toBe(404);
+    expect((await h.request(url,'DELETE',a)).status).toBe(404);
+    const listBody=await (await h.request('/api/my-rooms','GET',a)).json() as {rooms:Array<{id:string}>};
+    expect(listBody.rooms).toHaveLength(0);
+    const pageHtml=await (await worker.fetch(new Request(`https://yueju.my-custom.com/r/${room.id}`),h.env)).text();
+    expect(pageHtml).toContain('<title>找不到这张开黑车票 · 约局车票</title>');
+    expect((h.sqlite.prepare('SELECT COUNT(*) AS c FROM participants WHERE room_id=?').get(room.id) as {c:number}).c).toBe(0);
+    expect((h.sqlite.prepare('SELECT COUNT(*) AS c FROM mutations WHERE room_id=?').get(room.id) as {c:number}).c).toBe(0);
   });
 });

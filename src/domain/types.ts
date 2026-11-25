@@ -83,3 +83,19 @@ export type SaveMineInput = Readonly<{
 }>;
 
 export type ConnectionState = 'live' | 'reconnecting' | 'offline';
+
+export type MyRoomRole = 'owner' | 'member';
+
+export type MyRoomSummary = Readonly<{
+  id: string;
+  title: string;
+  gameTag?: GameTag;
+  nights: readonly Night[];
+  targetPlayers: number;
+  durationSlots: number;
+  submissionCount: number;
+  closedAt: string | null;
+  createdAt: string;
+  role: MyRoomRole;
+  lastVisitedAt?: string;
+}>;

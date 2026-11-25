@@ -66,6 +66,7 @@ export function App() {
           roomId={roomId}
           justCreated={justCreated}
           repository={activeRepository}
+          storageScope={useMock ? 'mock' : 'prod'}
           denyClipboard={useMock ? controls.denyClipboard : false}
           onNavigate={navigate}
           onRoomLoaded={setActiveSnapshot}
@@ -73,7 +74,9 @@ export function App() {
       ) : (
         <CreateRoomPage
           repository={activeRepository}
+          storageScope={useMock ? 'mock' : 'prod'}
           showDemoLink={useMock}
+          denyClipboard={useMock ? controls.denyClipboard : false}
           onCreated={(newId) => navigate(`/r/${encodeURIComponent(newId)}?created=1`)}
           onNavigate={navigate}
         />

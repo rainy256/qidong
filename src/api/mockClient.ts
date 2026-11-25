@@ -1,6 +1,7 @@
 import { normalizePicks } from '../domain/recommend';
 import type {
   CreateRoomSpec,
+  MyRoomSummary,
   RoomSnapshot,
   SaveMineInput,
   Submission,
@@ -36,6 +37,8 @@ export class MockRoomClient implements RoomRepository {
   private mutationResults = new Map<string, RoomSnapshot>();
   private subscribers = new Map<string, Set<SubscribeHandlers>>();
   private controlListeners = new Set<() => void>();
+  private createdRoomIds = new Set<string>();
+  private deletedDemoIds = new Set<string>();
   private counter = 100;
 
   private controls: DemoControlState = {
@@ -186,6 +189,8 @@ export class MockRoomClient implements RoomRepository {
     this.guestMemberByRoom.clear();
     this.mineRevisions.clear();
     this.mutationResults.clear();
+    this.createdRoomIds.clear();
+    this.deletedDemoIds.clear();
     this.controls = {
       role: 'guest',
       offline: false,
@@ -231,6 +236,7 @@ export class MockRoomClient implements RoomRepository {
       sampleMemberId: null,
     };
     this.scenarios.set(id, stored);
+    this.createdRoomIds.add(id);
     // Creator automatically enters as owner in the browser session
     this.controls = { ...this.controls, role: 'owner' };
     this.emitControlChange();
@@ -349,6 +355,85 @@ export class MockRoomClient implements RoomRepository {
     this.mutationResults.set(`close:${id}:${mutationId}`, snap);
     this.broadcastRoom(id);
     return snap;
+  }
+
+  async deleteRoom(id: string): Promise<void> {
+    if (this.controls.offline) {
+      throw new NetworkError();
+    }
+    await delay(100);
+
+    const stored = this.scenarios.get(id);
+    if (!stored) throw new NotFoundError();
+
+    const canDelete =
+      this.createdRoomIds.has(id) || id === 'demo-almost' || this.controls.role === 'owner';
+    if (!canDelete) {
+      throw new ForbiddenError('只有房主可以删除这个车队。');
+    }
+
+    this.scenarios.delete(id);
+    this.createdRoomIds.delete(id);
+    this.deletedDemoIds.add(id);
+
+    const subs = this.subscribers.get(id);
+    if (subs) {
+      for (const h of subs) {
+        h.onNotFound?.();
+      }
+      this.subscribers.delete(id);
+    }
+  }
+
+  async listMyRooms(signal?: AbortSignal): Promise<readonly MyRoomSummary[]> {
+    if (this.controls.offline) {
+      throw new NetworkError();
+    }
+    await delay(60, signal);
+
+    const summaries: MyRoomSummary[] = [];
+    const createdList = Array.from(this.createdRoomIds).reverse();
+    for (const id of createdList) {
+      if (this.deletedDemoIds.has(id)) continue;
+      const stored = this.scenarios.get(id);
+      if (!stored) continue;
+      summaries.push({
+        id: stored.room.id,
+        title: stored.room.title,
+        gameTag: stored.room.gameTag,
+        nights: stored.room.nights,
+        targetPlayers: stored.room.targetPlayers,
+        durationSlots: stored.room.durationSlots,
+        submissionCount: stored.room.submissions.length,
+        closedAt: stored.room.closedAt,
+        createdAt: stored.room.syncedAt,
+        role: 'owner',
+      });
+    }
+
+    const demoEntries: readonly { id: string; role: 'owner' | 'member' }[] = [
+      { id: 'demo-almost', role: 'owner' },
+      { id: 'demo-ready', role: 'member' },
+    ];
+    for (const item of demoEntries) {
+      if (this.createdRoomIds.has(item.id) || this.deletedDemoIds.has(item.id)) continue;
+      const stored = this.scenarios.get(item.id);
+      if (!stored) continue;
+      summaries.push({
+        id: stored.room.id,
+        title: stored.room.title,
+        gameTag: stored.room.gameTag,
+        nights: stored.room.nights,
+        targetPlayers: stored.room.targetPlayers,
+        durationSlots: stored.room.durationSlots,
+        submissionCount: stored.room.submissions.length,
+        closedAt: stored.room.closedAt,
+        createdAt: stored.room.syncedAt,
+        role: item.role,
+      });
+    }
+
+    return summaries;
   }
 
   subscribe(id: string, afterRevision: number, handlers: SubscribeHandlers): () => void {

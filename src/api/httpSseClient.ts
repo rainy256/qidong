@@ -1,4 +1,4 @@
-import type { CreateRoomSpec, RoomSnapshot, SaveMineInput } from '../domain/types';
+import type { CreateRoomSpec, MyRoomSummary, RoomSnapshot, SaveMineInput } from '../domain/types';
 import {
   ForbiddenError,
   NetworkError,
@@ -74,6 +74,32 @@ export class HttpSseRoomClient implements RoomRepository {
       body: JSON.stringify({ mutationId }),
     });
     return res as RoomSnapshot;
+  }
+
+  async deleteRoom(id: string): Promise<void> {
+    await this.ensureSession();
+    await this.fetchJson(`${this.baseUrl}/rooms/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      credentials: 'same-origin',
+      cache: 'no-store',
+    });
+  }
+
+  async listMyRooms(signal?: AbortSignal): Promise<readonly MyRoomSummary[]> {
+    try {
+      const res = (await this.fetchJson(`${this.baseUrl}/my-rooms`, {
+        method: 'GET',
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal,
+      })) as { rooms?: unknown };
+      return Array.isArray(res?.rooms) ? (res.rooms as MyRoomSummary[]) : [];
+    } catch (err) {
+      if (err instanceof NotFoundError) {
+        return [];
+      }
+      throw err;
+    }
   }
 
   subscribe(id: string, afterRevision: number, handlers: SubscribeHandlers): () => void {

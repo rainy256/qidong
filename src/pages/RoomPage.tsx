@@ -9,6 +9,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
 import {
+  recordRoomSnapshot,
+  removeLocalMyRoom,
+  type StorageScope,
+} from '../api/recentRooms';
+import {
   NetworkError,
   RepositoryError,
   NotFoundError,
@@ -30,6 +35,7 @@ type RoomPageProps = Readonly<{
   roomId: string;
   justCreated: boolean;
   repository: RoomRepository;
+  storageScope: StorageScope;
   denyClipboard: boolean;
   onNavigate: (path: string) => void;
   onRoomLoaded: (snapshot: RoomSnapshot | null) => void;
@@ -39,6 +45,7 @@ export function RoomPage({
   roomId,
   justCreated,
   repository,
+  storageScope,
   denyClipboard,
   onNavigate,
   onRoomLoaded,
@@ -61,13 +68,15 @@ export function RoomPage({
   const pendingClose = useRef<PendingMutation | null>(readPending('close:'+roomId));
   const accept = useCallback((incoming: RoomSnapshot) => {
     setSnapshot(prev => prev && prev.id === incoming.id && prev.roomRevision > incoming.roomRevision ? prev : incoming);
-  }, []);
+    recordRoomSnapshot(storageScope, incoming);
+  }, [storageScope]);
   const markMissing = useCallback(() => {
     loadRef.current?.abort();
+    removeLocalMyRoom(storageScope, roomId);
     setNotFound(true);
     setLoading(false);
     setSnapshot(null);
-  }, []);
+  }, [roomId, storageScope]);
 
   useEffect(() => {
     onRoomLoaded(snapshot);
@@ -169,6 +178,7 @@ export function RoomPage({
       });
       pendingSave.current = null;
       writePending(scope,null);
+      recordRoomSnapshot(storageScope, updated, updated.viewer.canClose ? 'owner' : 'member');
       accept(updated);
       return true;
     } catch (err) {
@@ -276,12 +286,20 @@ export function RoomPage({
       <div className={styles.mobileStage}>
         {/* Compact Mobile Top Utility Strip */}
         <header className={styles.topUtility}>
-          <span className={styles.brandWord}>
+          <a
+            href="/"
+            className={styles.brandWord}
+            title="回到首页查看我的车队"
+            onClick={(e) => {
+              e.preventDefault();
+              onNavigate('/');
+            }}
+          >
             <span className={styles.brandMark} aria-hidden="true">
               <TicketSparkIcon size={15} tone="violet" />
             </span>
             <span>约局车票</span>
-          </span>
+          </a>
 
           <a
             href="/"

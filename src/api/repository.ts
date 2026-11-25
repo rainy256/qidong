@@ -1,6 +1,7 @@
 import type {
   ConnectionState,
   CreateRoomSpec,
+  MyRoomSummary,
   RoomSnapshot,
   SaveMineInput,
 } from '../domain/types';
@@ -60,5 +61,7 @@ export interface RoomRepository {
   getRoom(id: string, signal?: AbortSignal): Promise<RoomSnapshot>;
   saveMine(id: string, input: SaveMineInput): Promise<RoomSnapshot>;
   closeRoom(id: string, mutationId: string): Promise<RoomSnapshot>;
+  deleteRoom(id: string): Promise<void>;
+  listMyRooms(signal?: AbortSignal): Promise<readonly MyRoomSummary[]>;
   subscribe(id: string, afterRevision: number, handlers: SubscribeHandlers): () => void;
 }

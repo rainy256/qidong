@@ -1,6 +1,14 @@
-import { useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { NetworkError, RepositoryError, type RoomRepository } from '../api/repository';
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { NotFoundError, NetworkError, RepositoryError, type RoomRepository } from '../api/repository';
 import { pendingMutation, readPending, writePending, type PendingMutation } from '../api/mutation';
+import {
+  mergeMyRooms,
+  readLocalMyRooms,
+  recordRoomSnapshot,
+  removeLocalMyRoom,
+  upsertLocalMyRoom,
+  type StorageScope,
+} from '../api/recentRooms';
 import {
   AlertSoftIcon,
   ArrowSoftIcon,
@@ -12,6 +20,7 @@ import {
 } from '../components/AppIcons';
 import { getAvatarTone } from '../components/AvatarChip';
 import { GameStickerArt, HeroSquadIllustration } from '../components/GameArtwork';
+import { MyRoomsSection } from '../components/MyRoomsSection';
 import {
   buildNightWindow,
   buildPresetRoomTitle,
@@ -20,12 +29,14 @@ import {
   getTodayShanghaiDateKey,
   pickDefaultWeekendDates,
 } from '../domain/time';
-import type { GameTag } from '../domain/types';
+import type { GameTag, MyRoomSummary } from '../domain/types';
 import styles from './CreateRoomPage.module.css';
 
 type CreateRoomPageProps = Readonly<{
   repository: RoomRepository;
+  storageScope: StorageScope;
   showDemoLink?: boolean;
+  denyClipboard?: boolean;
   onCreated: (roomId: string) => void;
   onNavigate: (path: string) => void;
 }>;
@@ -84,10 +95,40 @@ const DURATION_PRESETS = [
 
 export function CreateRoomPage({
   repository,
+  storageScope,
   showDemoLink = true,
+  denyClipboard = false,
   onCreated,
   onNavigate,
 }: CreateRoomPageProps) {
+  const [myRooms, setMyRooms] = useState<readonly MyRoomSummary[]>(() =>
+    readLocalMyRooms(storageScope),
+  );
+
+  useEffect(() => {
+    const localInitial = readLocalMyRooms(storageScope);
+    setMyRooms(localInitial);
+    const ac = new AbortController();
+    let active = true;
+
+    void repository
+      .listMyRooms(ac.signal)
+      .then((remote) => {
+        if (!active || ac.signal.aborted) return;
+        for (const room of remote) {
+          upsertLocalMyRoom(storageScope, room);
+        }
+        setMyRooms(mergeMyRooms(remote, readLocalMyRooms(storageScope)));
+      })
+      .catch((err) => {
+        if (!active || ac.signal.aborted || (err as Error)?.name === 'AbortError') return;
+      });
+
+    return () => {
+      active = false;
+      ac.abort();
+    };
+  }, [repository, storageScope]);
   const todayKey = useMemo(() => getTodayShanghaiDateKey(), []);
   const dateOptions = useMemo(() => buildUpcomingDateOptions(todayKey, 10), [todayKey]);
 
@@ -182,6 +223,7 @@ export function CreateRoomPage({
       const created = await repository.createRoom(spec, pending.current.key);
       pending.current = null;
       writePending('create', null);
+      recordRoomSnapshot(storageScope, created, 'owner');
       onCreated(created.id);
     } catch (err) {
       if (err instanceof RepositoryError && !(err instanceof NetworkError) && err.code !== 'SESSION_REQUIRED') {
@@ -208,6 +250,20 @@ export function CreateRoomPage({
       }
       void submitCreate();
     }
+  };
+
+  const handleDeleteRoom = async (room: MyRoomSummary): Promise<void> => {
+    if (room.role === 'owner') {
+      try {
+        await repository.deleteRoom(room.id);
+      } catch (err) {
+        if (!(err instanceof NotFoundError)) {
+          throw err;
+        }
+      }
+    }
+    removeLocalMyRoom(storageScope, room.id);
+    setMyRooms((prev) => prev.filter((item) => item.id !== room.id));
   };
 
   return (
@@ -237,21 +293,28 @@ export function CreateRoomPage({
           )}
         </header>
 
-        <form className={styles.form} onSubmit={handleSubmit}>
-          {/* Cozy Illustrated Hero Banner */}
-          <section className={styles.heroCard} aria-labelledby="create-heading">
-            <HeroSquadIllustration />
-            <div className={styles.heroText}>
-              <span className={styles.heroBadge}>飞奔赶来开黑中</span>
-              <h1 id="create-heading" className={styles.title}>
-                今晚约谁一起玩？
-              </h1>
-              <p className={styles.subtitle}>
-                选好游戏和备选晚上，把车票链接丢进群里自动凑齐人。
-              </p>
-            </div>
-          </section>
+        {/* Cozy Illustrated Hero Banner */}
+        <section className={styles.heroCard} aria-labelledby="create-heading">
+          <HeroSquadIllustration />
+          <div className={styles.heroText}>
+            <span className={styles.heroBadge}>飞奔赶来开黑中</span>
+            <h1 id="create-heading" className={styles.title}>
+              今晚约谁一起玩？
+            </h1>
+            <p className={styles.subtitle}>
+              选好游戏和备选晚上，把车票链接丢进群里自动凑齐人。
+            </p>
+          </div>
+        </section>
 
+        <MyRoomsSection
+          rooms={myRooms}
+          onOpenRoom={(id) => onNavigate(`/r/${encodeURIComponent(id)}`)}
+          onDeleteRoom={handleDeleteRoom}
+          denyClipboard={denyClipboard}
+        />
+
+        <form className={styles.form} onSubmit={handleSubmit}>
           {/* 2x2 Illustrated Game Sticker Cards */}
           <section className={styles.sectionCard} aria-label="选择游戏">
             <h2 className={styles.sectionTitle}>玩哪一款？</h2>
